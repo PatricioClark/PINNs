@@ -49,7 +49,8 @@ t_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1), layers, weights, biases)
+field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1), 
+                layers, weights, biases, act=params.act)
 u_u = field_u[:,0:1]
 v_u = field_u[:,1:2]
 w_u = field_u[:,2:3]
@@ -69,7 +70,8 @@ t_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1), layers, weights, biases)
+field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1), 
+                layers, weights, biases, act=params.act)
 u_f = field_f[:,0:1]
 v_f = field_f[:,1:2]
 w_f = field_f[:,2:3]

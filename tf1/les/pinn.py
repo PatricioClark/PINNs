@@ -49,7 +49,8 @@ t_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1), layers, weights, biases)
+field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1),
+                layers, weights, biases, act=params.act)
 u_u = field_u[:,0:1]
 v_u = field_u[:,1:2]
 w_u = field_u[:,2:3]
@@ -69,7 +70,8 @@ t_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1), layers, weights, biases)
+field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1),
+                layers, weights, biases, act=params.act)
 u_f = field_f[:,0:1]
 v_f = field_f[:,1:2]
 w_f = field_f[:,2:3]
@@ -175,7 +177,7 @@ saver = tf.compat.v1.train.Saver()
 sess = tf.compat.v1.Session()
 
 # Initialize variables or restore model
-if params.restore:
+if params.ep0:
     saver.restore(sess, "{}/session".format(which))
 else:
     sess.run(tf.compat.v1.global_variables_initializer())
@@ -224,7 +226,7 @@ batches    = len(t_d)//mini_batch
 # -----------------------------------------------------------------------------
 
 # Run epochs
-for ep in range(epochs):        
+for ep in range(params.ep0, epochs):        
     # Create batches
     idx_u = np.arange(x_d.shape[0])
     idx_f = np.arange(x_d.shape[0])
