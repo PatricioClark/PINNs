@@ -22,8 +22,7 @@ from   dom import Run, implot
 tf.compat.v1.disable_eager_execution()
 
 # Get parameters
-# params = Run(sys.argv[1])
-which = "03"
+which  = "{:02}".format(int(sys.argv[1]))
 params = Run(which)
 
 # -----------------------------------------------------------------------------
@@ -188,7 +187,7 @@ dx          = 8*np.pi/2048
 dz          = 3*np.pi/1536 
 dx_plus     = dx/visc_length*2
 dz_plus     = dz/visc_length*4
-for tidx in [0,70,149]:
+for tidx in [149]:
     t_p, x_p, y_p, z_p = plot_points(Nx, Ny, Nz, tidx=tidx)
 
     # Save fields
@@ -213,27 +212,27 @@ for tidx in [0,70,149]:
             fontsize=20)
 
     subplot(231)
-    implot(vv[0,:,5,:], extent=[0,dx_plus*32,0,dz_plus*32])
+    implot(vv[0,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
     title('Real $u$')
     ylabel('$z^+$')
     subplot(232)
-    implot(vv[1,:,5,:], extent=[0,dx_plus*32,0,dz_plus*32])
+    implot(vv[1,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
     title('Real $v$')
     subplot(233)
-    implot(vv[2,:,5,:], extent=[0,dx_plus*32,0,dz_plus*32])
+    implot(vv[2,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
     title('Real $w$')
 
     subplot(234)
-    implot(u_p[:,5,:], extent=[0,dx_plus*32,0,dz_plus*32])
+    implot(u_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
     title('PINN $u$')
     ylabel('$z^+$')
     xlabel('$x^+$')
     subplot(235)
-    implot(v_p[:,5,:], extent=[0,dx_plus*32,0,dz_plus*32])
+    implot(v_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
     title('PINN $v$')
     xlabel('$x^+$')
     subplot(236)
-    implot(w_p[:,5,:], extent=[0,dx_plus*32,0,dz_plus*32])
+    implot(w_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
     title('PINN $w$')
     xlabel('$x^+$')
 
