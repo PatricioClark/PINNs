@@ -17,6 +17,7 @@ import numpy as np
 import sys
 from   mod import *
 from   dom import Run
+import time
 
 tf.compat.v1.disable_eager_execution()
 
@@ -191,23 +192,23 @@ Nt = 150
 sample_prob = params.sample_prob
 try:
     print("Retrieving data")
-    t_d = np.load('t_d.npy')
-    x_d = np.load('x_d.npy')
-    y_d = np.load('y_d.npy')
-    z_d = np.load('z_d.npy')
-    u_d = np.load('u_d.npy')
-    v_d = np.load('v_d.npy')
-    w_d = np.load('w_d.npy')
+    t_d = np.load('data/t_d.npy')
+    x_d = np.load('data/x_d.npy')
+    y_d = np.load('data/y_d.npy')
+    z_d = np.load('data/z_d.npy')
+    u_d = np.load('data/u_d.npy')
+    v_d = np.load('data/v_d.npy')
+    w_d = np.load('data/w_d.npy')
 except:
     print("Regenerating data")
     t_d, x_d, y_d, z_d, u_d, v_d, w_d = generate_data(Nt, Nx, Ny, Nz, sample_prob)
-    np.save('t_d', t_d)
-    np.save('x_d', x_d)
-    np.save('y_d', y_d)
-    np.save('z_d', z_d)
-    np.save('u_d', u_d)
-    np.save('v_d', v_d)
-    np.save('w_d', w_d)
+    np.save('data/t_d', t_d)
+    np.save('data/x_d', x_d)
+    np.save('data/y_d', y_d)
+    np.save('data/z_d', z_d)
+    np.save('data/u_d', u_d)
+    np.save('data/v_d', v_d)
+    np.save('data/w_d', w_d)
 
 # Points for plotting
 t_p, x_p, y_p, z_p = plot_points(Nx, Ny, Nz)
