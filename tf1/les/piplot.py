@@ -240,5 +240,5 @@ for tidx in [149]:
 
     savefig("comp{}_{:03}".format(which,tidx))
 
-draw()
-show()
+# draw()
+# show()

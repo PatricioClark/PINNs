@@ -119,7 +119,6 @@ S33 = w_z
 
 vl    = 1.006e-3
 delta = 40*vl
-# c_s   = tf.exp(tf.Variable(np.random.random(), dtype=tf.float64))
 c_s   = tf.Variable(np.random.random(), dtype=tf.float64)
 eddy_viscosity = (c_s*delta)**2*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
                                                     S22**2+2*S23**2+
@@ -179,8 +178,11 @@ sess = tf.compat.v1.Session()
 # Initialize variables or restore model
 if params.ep0:
     saver.restore(sess, "{}/session".format(which))
+    sess.run(lfw.assign(params.lfw))
+    print("Restoring session")
 else:
     sess.run(tf.compat.v1.global_variables_initializer())
+    print("Starting new session")
 
 # -----------------------------------------------------------------------------
 # Generate data and define parameters/hyperparamters
@@ -252,7 +254,7 @@ for ep in range(params.ep0, epochs):
         sess.run(optimizer, feed_dict=feed_dict)
 
     # Check convergence
-    if ep % print_skip == 0:
+    if ep % print_skip == 0 or ep == params.ep0:
         idx_u = np.arange(x_d.shape[0])
         idx_f = np.arange(x_d.shape[0])
         np.random.shuffle(idx_u)
