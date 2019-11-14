@@ -22,8 +22,7 @@ from   dom import Run, implot
 tf.compat.v1.disable_eager_execution()
 
 # Get parameters
-# params = Run(sys.argv[1])
-which = "005"
+which  = "{:02}".format(int(sys.argv[1]))
 params = Run(which)
 
 # -----------------------------------------------------------------------------
@@ -50,7 +49,8 @@ t_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1), layers, weights, biases)
+field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1), 
+                layers, weights, biases, act=params.act)
 u_u = field_u[:,0:1]
 v_u = field_u[:,1:2]
 w_u = field_u[:,2:3]
@@ -70,7 +70,8 @@ t_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1), layers, weights, biases)
+field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1), 
+                layers, weights, biases, act=params.act)
 u_f = field_f[:,0:1]
 v_f = field_f[:,1:2]
 w_f = field_f[:,2:3]
@@ -175,42 +176,46 @@ for tidx in [0,70,149]:
 
     fig = figure(figsize=(20,10))
 
-    fig.suptitle('$t={:.2f},\; \lambda = {}$'.format(tidx*dt, params.lfw),
-            fontsize=20)
+    # fig = figure(figsize=(20,10))
 
-    subplot(241)
-    implot(vv[0,:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('Real $u_1$')
-    ylabel('$z^+$')
-    subplot(242)
-    implot(vv[1,:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('Real $u_2$')
-    subplot(243)
-    implot(vv[2,:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('Real $u_3$')
-    subplot(244)
-    implot(pp[0,:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('Real $p$')
+    # fig.suptitle('$t={:.2f},\; \lambda = {}, \; d={}$'.format(tidx*dt,
+    #                                                  params.lfw,
+    #                                                  params.layers),
+    #         fontsize=20)
 
-    subplot(245)
-    implot(u_p[:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('PINN $u_1$')
+    # subplot(231)
+    # implot(vv[0,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('Real $u$')
+    # ylabel('$z^+$')
+    # subplot(232)
+    # implot(vv[1,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('Real $v$')
+    # subplot(233)
+    figure(1)
+    implot(vv[2,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    title('Real $w$')
     ylabel('$z^+$')
     xlabel('$x^+$')
-    subplot(246)
-    implot(v_p[:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('PINN $u_2$')
-    xlabel('$x^+$')
-    subplot(247)
-    implot(w_p[:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('PINN $u_3$')
-    xlabel('$x^+$')
-    subplot(248)
-    implot(p_p[:,16,:], extent=[0,dx_plus*32,0,dz_plus*32])
-    title('PINN $p$')
-    xlabel('$x^+$')
+    savefig("real")
 
-    savefig("comp{}_{:03}".format(which,tidx))
+    # subplot(234)
+    # implot(u_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('PINN $u$')
+    # ylabel('$z^+$')
+    # xlabel('$x^+$')
+    # subplot(235)
+    # implot(v_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('PINN $v$')
+    # xlabel('$x^+$')
+    # subplot(236)
+    figure(2)
+    implot(w_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    title('PINN $w$, $\lambda = {}$, $d={}$'.format(params.lfw, params.layers))
+    ylabel('$z^+$')
+    xlabel('$x^+$')
+    savefig("pinn_{}".format(which))
+
+    # savefig("comp{}_{:03}".format(which,tidx))
 
 draw()
 show()

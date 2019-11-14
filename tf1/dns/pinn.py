@@ -22,7 +22,7 @@ import time
 tf.compat.v1.disable_eager_execution()
 
 # Get parameters
-which  = "{:03}".format(int(sys.argv[1]))
+which  = "{:02}".format(int(sys.argv[1]))
 params = Run(which)
 
 # -----------------------------------------------------------------------------
@@ -49,7 +49,8 @@ t_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1), layers, weights, biases)
+field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1),
+                layers, weights, biases, act=params.act)
 u_u = field_u[:,0:1]
 v_u = field_u[:,1:2]
 w_u = field_u[:,2:3]
@@ -69,7 +70,8 @@ t_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 x_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
-field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1), layers, weights, biases)
+field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1),
+                layers, weights, biases, act=params.act)
 u_f = field_f[:,0:1]
 v_f = field_f[:,1:2]
 w_f = field_f[:,2:3]
@@ -110,9 +112,10 @@ w_zz = tf.gradients(w_z, z_f)[0]
 
 # Equations to be enforced
 nu = 5e-5
+dPdx = 0.0025
 f0 = u_x+v_y+w_z
 f1 = (u_t + u_f*u_x + v_f*u_y + w_f*u_z +
-        p_x - nu*(u_xx+u_yy+u_zz))
+        p_x + dPdx - nu*(u_xx+u_yy+u_zz))
 f2 = (v_t + u_f*v_x + v_f*v_y + w_f*v_z +
         p_y - nu*(v_xx+v_yy+v_zz))
 f3 = (w_t + u_f*w_x + v_f*w_y + w_f*w_z +
@@ -142,40 +145,43 @@ saver = tf.compat.v1.train.Saver()
 sess = tf.compat.v1.Session()
 
 # Initialize variables or restore model
-if params.restore:
+if params.ep0:
     saver.restore(sess, "{}/session".format(which))
+    sess.run(lfw.assign(params.lfw))
+    print("Restoring session")
 else:
     sess.run(tf.compat.v1.global_variables_initializer())
+    print("Starting new session")
 
 # -----------------------------------------------------------------------------
 # Generate data and define parameters/hyperparamters
 # -----------------------------------------------------------------------------
 
 # Retrieve data and sample it randomly
-Nx = 32
-Ny = 32
-Nz = 32
+Nx = 64
+Ny = 8
+Nz = 64
 Nt = 150
 sample_prob = params.sample_prob
 try:
     print("Retrieving data")
-    t_d = np.load('t_d.npy')
-    x_d = np.load('x_d.npy')
-    y_d = np.load('y_d.npy')
-    z_d = np.load('z_d.npy')
-    u_d = np.load('u_d.npy')
-    v_d = np.load('v_d.npy')
-    w_d = np.load('w_d.npy')
+    t_d = np.load('data/t_d.npy')
+    x_d = np.load('data/x_d.npy')
+    y_d = np.load('data/y_d.npy')
+    z_d = np.load('data/z_d.npy')
+    u_d = np.load('data/u_d.npy')
+    v_d = np.load('data/v_d.npy')
+    w_d = np.load('data/w_d.npy')
 except:
     print("Regenerating data")
     t_d, x_d, y_d, z_d, u_d, v_d, w_d = generate_data(Nt, Nx, Ny, Nz, sample_prob)
-    np.save('t_d', t_d)
-    np.save('x_d', x_d)
-    np.save('y_d', y_d)
-    np.save('z_d', z_d)
-    np.save('u_d', u_d)
-    np.save('v_d', v_d)
-    np.save('w_d', w_d)
+    np.save('data/t_d', t_d)
+    np.save('data/x_d', x_d)
+    np.save('data/y_d', y_d)
+    np.save('data/z_d', z_d)
+    np.save('data/u_d', u_d)
+    np.save('data/v_d', v_d)
+    np.save('data/w_d', w_d)
 
 # Points for plotting
 t_p, x_p, y_p, z_p = plot_points(Nx, Ny, Nz)
@@ -191,7 +197,7 @@ batches    = len(t_d)//mini_batch
 # -----------------------------------------------------------------------------
 
 # Run epochs
-for ep in range(epochs):        
+for ep in range(params.ep0, epochs):        
     # Create batches
     idx_u = np.arange(x_d.shape[0])
     idx_f = np.arange(x_d.shape[0])
@@ -217,7 +223,7 @@ for ep in range(epochs):
         sess.run(optimizer, feed_dict=feed_dict)
 
     # Check convergence
-    if ep % print_skip == 0:
+    if ep % print_skip == 0 or ep == params.ep0:
         idx_u = np.arange(x_d.shape[0])
         idx_f = np.arange(x_d.shape[0])
         np.random.shuffle(idx_u)

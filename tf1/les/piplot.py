@@ -206,39 +206,46 @@ for tidx in [149]:
     # Real fields
     vv = np.load("data/filt_velos.{:02}.npy".format(tidx))
 
-    fig = figure(figsize=(20,10))
+    # fig = figure(figsize=(20,10))
 
-    fig.suptitle('$t={:.2f},\; \lambda = {}, \; d={}$'.format(tidx*dt,
-                                                     params.lfw,
-                                                     params.layers),
-            fontsize=20)
+    # fig.suptitle('$t={:.2f},\; \lambda = {}, \; d={}$'.format(tidx*dt,
+    #                                                  params.lfw,
+    #                                                  params.layers),
+    #         fontsize=20)
 
-    subplot(231)
-    implot(vv[0,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
-    title('Real $u$')
-    ylabel('$z^+$')
-    subplot(232)
-    implot(vv[1,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
-    title('Real $v$')
-    subplot(233)
+    # subplot(231)
+    # implot(vv[0,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('Real $u$')
+    # ylabel('$z^+$')
+    # subplot(232)
+    # implot(vv[1,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('Real $v$')
+    # subplot(233)
+    figure(1)
     implot(vv[2,:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
     title('Real $w$')
-
-    subplot(234)
-    implot(u_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
-    title('PINN $u$')
     ylabel('$z^+$')
     xlabel('$x^+$')
-    subplot(235)
-    implot(v_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
-    title('PINN $v$')
-    xlabel('$x^+$')
-    subplot(236)
+    savefig("real")
+
+    # subplot(234)
+    # implot(u_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('PINN $u$')
+    # ylabel('$z^+$')
+    # xlabel('$x^+$')
+    # subplot(235)
+    # implot(v_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
+    # title('PINN $v$')
+    # xlabel('$x^+$')
+    # subplot(236)
+    figure(2)
     implot(w_p[:,5,:], extent=[0,dx_plus*56,0,dz_plus*56])
-    title('PINN $w$')
+    title('PINN $w$, $\lambda = {}$, $d={}$'.format(params.lfw, params.layers))
+    ylabel('$z^+$')
     xlabel('$x^+$')
+    savefig("pinn_{}".format(which))
 
-    savefig("comp{}_{:03}".format(which,tidx))
+    # savefig("comp{}_{:03}".format(which,tidx))
 
-# draw()
-# show()
+draw()
+show()
