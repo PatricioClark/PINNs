@@ -9,17 +9,26 @@ import sys
 
 from pinn import PhysicsInformedNN
     
+# -----------------------------------------------------------------------------
 # Equations to enforce
-def some_eqs(pinn, coords, params):
-    _, fgrad = pinn.grad(coords)
+# -----------------------------------------------------------------------------
+
+@tf.function
+def some_eqs(model, coords, params):
+    dout = 2
+    with tf.GradientTape(persistent=True) as tape:
+        tape.watch(coords)
+        Yp = model(coords)[0]
+        fields = [Yp[:,jj] for jj in range(dout)]
+    df = [tape.gradient(fields[jj], coords) for jj in range(dout)]
+    df1dx1 = df[0][:,0]
+    df1dx2 = df[0][:,1]
+    df2dx1 = df[1][:,0]
+    df2dx2 = df[1][:,1]
+    del tape
     
-    df1dx1 = fgrad[0][:,0]
-    df1dx2 = fgrad[0][:,1]
     eq1 = df1dx1 - np.pi*tf.cos(np.pi*coords[:,0])
     eq2 = df1dx2 + np.pi*tf.sin(np.pi*coords[:,1])
-
-    df2dx1 = fgrad[1][:,0]
-    df2dx2 = fgrad[1][:,1]
 
     # params[0] should be equal to 2
     # params[1] should be equal to 3
@@ -57,9 +66,8 @@ zs = np.zeros(numps, dtype=np.float32).reshape(-1,1)
 # -----------------------------------------------------------------------------
 # Initialize PINN
 # -----------------------------------------------------------------------------
-layers  = [2] + 2*[128] + [2]
+layers  = [2] + 2*[64] + [2]
 PINN = PhysicsInformedNN(layers,
-                         some_eqs,
                          eq_params=[2,3],
                          inverse=['const', False],
                          restore=False)
@@ -67,13 +75,11 @@ PINN = PhysicsInformedNN(layers,
 # -----------------------------------------------------------------------------
 # Train PINN
 # -----------------------------------------------------------------------------
-PINN.train(X,Y,X, epochs=100, batch_size=32, verbose=True)
+PINN.train(X, Y, some_eqs, epochs=1, batch_size=32, verbose=False)
 
-print('Mid training')
-print('eq_params[0] = {}, eq_params[1] = {}'.format(*PINN.eq_params))
-
-# Train some more
-PINN.train(X,Y,X, epochs=100, batch_size=32, verbose=True)
+t0 = time.time()
+PINN.train(X, Y, some_eqs, epochs=100, batch_size=32, verbose=False)
+print('Time per epoch:', (time.time()-t0)/100)
 
 # -----------------------------------------------------------------------------
 # Plot and validate
@@ -84,16 +90,19 @@ prefix = 'fig'
 # Plot loss functions
 ep, lu, lf = np.loadtxt('output.dat', unpack=True)
 
+ep, c1 = np.loadtxt('inverse.dat', unpack=True)
+
 plt.figure(0)
 plt.plot(ep, lu, label='Data loss')
 plt.plot(ep, lf, '--', label='Eqs loss')
+plt.legend()
 plt.savefig(prefix+'_0')
 
-# Parameters (learned and fixed)
-# The evolution of the parameters is not saved by default, it should be written
-# while training if one wants that
-print('Training finished')
-print('eq_params[0] = {}, eq_params[1] = {}'.format(*PINN.eq_params))
+plt.figure(10)
+plt.plot(ep, c1, label='Parameter')
+plt.axhline(2,color='k',ls='--',label='Real value')
+plt.legend()
+plt.savefig(prefix+'_10')
 
 # Evalute along x_2=0
 X      = np.concatenate((x1,zs), 1)
@@ -155,7 +164,6 @@ plt.plot(x1, g11)
 plt.plot(x1, np.pi*np.cos(np.pi*x1),'ro')
 plt.title(r'$\frac{\partial f_1}{\partial x_1}(x_1,0)$')
 plt.savefig(prefix+'_5')
-plt.show()
 
 plt.figure(7)
 plt.clf()

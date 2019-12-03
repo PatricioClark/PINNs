@@ -36,16 +36,8 @@ class PhysicsInformedNN:
     layers : list
         Shape of the NN. The first element must be din, and the last one must
         be dout.
-    pde : function
-        Function specifying the equations of the problem. Takes as a
-        PhysicsInformedNN class instance, coords and eq_params as inputs.  The
-        output of the function must be a list containing all equations.
     dest : str [optional]
         Path for output files.
-    lambda_data : int [optional]
-        Weight of the data part of the loss function.
-    lambda_phys : int [optional]
-        Weight of the physiscs part of the loss function.
     eq_params : list [optional]
         List of parameters to be used in pde.
     inverse : list [optional]
@@ -65,12 +57,9 @@ class PhysicsInformedNN:
     # Initialize the class
     def __init__(self,
                  layers,
-                 pde,
                  dest='./',
-                 lambda_data=1,
-                 lambda_phys=1,
                  activation='tanh',
-                 optimizer=keras.optimizers.Nadam(lr=0.01),
+                 optimizer=keras.optimizers.Adam(lr=0.01),
                  normalize=False,
                  eq_params=[],
                  inverse=False,
@@ -85,7 +74,6 @@ class PhysicsInformedNN:
         # Extras
         self.dpar        = len(eq_params)
         self.dest        = dest
-        self.pde         = pde
         self.eq_params   = eq_params
         self.eval_params = copy.copy(eq_params)
         self.inverse     = inverse
@@ -93,8 +81,6 @@ class PhysicsInformedNN:
         self.normalize   = normalize
         self.optimizer   = optimizer
         self.activation  = activation
-        self.lambda_data = lambda_data
-        self.lambda_phys = lambda_phys
 
         # Activation function
         if activation=='tanh':
@@ -196,9 +182,13 @@ class PhysicsInformedNN:
         return inv_outputs
 
     def train(self,
-              X_data, Y_data, X_phys,
+              X_data, Y_data,
+              pde,
               epochs, batch_size,
+              lambda_data=1.0,
+              lambda_phys=1.0,
               verbose=False,
+              print_freq=1,
               save_freq=1,
               data_mask=None):
         """
@@ -217,15 +207,22 @@ class PhysicsInformedNN:
             Must have shape (:, dout). First dimension must be the same as
             X_data. If data constraint is not to be enforced on a certain field
             then the data_mask option should be used.
-        X_phys : ndarray
-            Coordinates where the physics constraint is going to be enforced.
-            Must have shape (:, din). Can be of different length from X_data.
+        pde : function
+            Function specifying the equations of the problem. Takes as a
+            PhysicsInformedNN class instance, coords and eq_params as inputs.  The
+            output of the function must be a list containing all equations.
         epochs : int
             Number of epochs to train
         batch_size : int
             Size of batches
+        lambda_data : int [optional]
+            Weight of the data part of the loss function.
+        lambda_phys : int [optional]
+            Weight of the physiscs part of the loss function.
         verbose : bool [optional]
             Verbose output or not. Default is False.
+        print_freq : int [optional]
+            Print status frequency. Default is 1.
         save_freq : int [optional]
             Save model frequency. Default is 1.
         data_mask : list [optional]
@@ -238,89 +235,97 @@ class PhysicsInformedNN:
         if data_mask is None:
             data_mask = [True for _ in range(self.dout)]
 
-        # Metrics
-        mean_data = keras.metrics.Mean()
-        mean_phys = keras.metrics.Mean()
-
         # Run epochs
         ep0     = int(self.ckpt.step)
-        batches = np.max([X_data.shape[0], X_phys.shape[0]]) // batch_size
+        batches = X_data.shape[0] // batch_size
+        idxs    = np.arange(X_data.shape[0])
         for ep in range(ep0, ep0+epochs):
+            np.random.shuffle(idxs)
             for ba in range(batches):
+                sl_ba = slice(ba*batch_size, (ba+1)*batch_size)
 
                 # Create batches
-                X_batch, Y_batch = random_batch(X_data, Y_data,
-                                                batch_size=batch_size)
-                X_eqenf, _       = random_batch(X_phys, X_phys,
-                                                batch_size=batch_size)
+                X_batch = X_data[idxs[sl_ba]]
+                Y_batch = Y_data[idxs[sl_ba]]
+                X_batch = tf.convert_to_tensor(X_batch)
+                Y_batch = tf.convert_to_tensor(Y_batch)
 
-                with tf.GradientTape(persistent=True) as tape:
-                    # Data part
-                    Y_pred, dummy = self.model(X_batch)
-                    aux = [tf.reduce_mean(tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
-                           if data_mask[ii] else 0 for ii in range(self.dout)]
-                    loss_data = sum(aux)
+                (loss_data,
+                 loss_phys,
+                 inv_outputs) = self.training_step(X_batch, Y_batch,
+                                                   pde,
+                                                   lambda_data,
+                                                   lambda_phys,
+                                                   data_mask)
 
-                    # Grab inverse coefs
-                    if self.inverse:
-                        param_pred = self.model(X_eqenf)[1:]
-                        qq = 0
-                        for pp in range(self.dpar):
-                            if self.inverse[pp]:
-                                self.eval_params[pp] = param_pred[qq][:,0]
-                                self.eq_params[pp]   = self.eval_params[pp][0].numpy()
-                                qq += 1
-                    else:
-                        loss_data = loss_data + 0*dummy
-
-                    # Physics part
-                    X_eqenf   = tf.convert_to_tensor(X_eqenf)
-                    equations = self.pde(self, X_eqenf, self.eval_params)
-                    aux       = [tf.reduce_mean(tf.square(eq))
-                                 for eq in equations]
-                    loss_phys = sum(aux)
-
-                    # Total loss function
-                    loss = self.lambda_data*loss_data + self.lambda_phys*loss_phys
-
-                # Get mean of losses
-                mean_data(loss_data)
-                mean_phys(loss_phys)
-
-                # Calculate and apply gradients
-                gradients = tape.gradient(loss,
-                            self.model.trainable_variables)
-                self.optimizer.apply_gradients(zip(gradients,
-                            self.model.trainable_variables))
-
-                # Free tape
-                del tape
 
             # Print status
-            self.print_status(ep,
-                              mean_data.result(),
-                              mean_phys.result(),
-                              verbose=verbose)
-            mean_data.reset_states()
-            mean_phys.reset_states()
-
+            if ep%print_freq==0:
+                self.print_status(ep,
+                                  loss_data,
+                                  loss_phys,
+                                  inv_outputs,
+                                  verbose=verbose)
             # Save progress
             self.ckpt.step.assign_add(1)
             if ep%save_freq==0:
                 self.manager.save()
 
-    def print_status(self, ep, lu, lf, verbose=False):
+    @tf.function
+    def training_step(self, X_batch, Y_batch,
+                      pde, lambda_data, lambda_phys,
+                      data_mask):
+        with tf.GradientTape() as tape:
+            # Data part
+            output = self.model(X_batch)
+            Y_pred = output[0]
+            p_pred = output[1:]
+            aux = [tf.reduce_mean(tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
+                   if data_mask[ii] else 0 for ii in range(self.dout)]
+            loss_data = tf.add_n(aux)
+
+            # Grab inverse coefs
+            if self.inverse:
+                qq = 0
+                for pp in range(self.dpar):
+                    if self.inverse[pp]:
+                        self.eval_params[pp] = p_pred[qq][:,0]
+                        qq += 1
+
+            # Physics part
+            equations = pde(self.model, X_batch, self.eval_params)
+            aux       = [tf.reduce_mean(tf.square(eq))
+                         for eq in equations]
+            loss_phys = tf.add_n(aux)
+
+            # Total loss function
+            loss = lambda_data*loss_data + lambda_phys*loss_phys
+
+        # Calculate and apply gradients
+        gradients = tape.gradient(loss,
+                    self.model.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients,
+                    self.model.trainable_variables))
+
+        return loss_data, loss_phys, [param[0][0] for param in p_pred]
+
+    def print_status(self, ep, lu, lf, inv_outputs, verbose=False):
         """ Print status function """
+
+        # Loss functions
         output_file = open(self.dest + 'output.dat', 'a')
-        print(ep,
-              '{}'.format(lu),
-              '{}'.format(lf),
+        print(ep, f'{lu}', f'{lf}',
               file=output_file)
         output_file.close()
         if verbose:
-            print(ep,
-                  '{}'.format(lu),
-                  '{}'.format(lf))
+            print(ep, f'{lu}', f'{lf}')
+
+        # Inverse coefficients
+        output_file = open(self.dest + 'inverse.dat', 'a')
+        if self.inverse:
+            print(ep, *[pp.numpy() for pp in inv_outputs],
+                  file=output_file)
+        output_file.close()
 
     def grad(self, coords):
         """
@@ -424,165 +429,3 @@ class AdaptiveAct(keras.layers.Layer):
 
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
-
-def LES3D(pinn, coords, params):
-    """ LES 3D Smagorinsky equations """
-
-    x = coords[:,0:1]
-    y = coords[:,1:2]
-    z = coords[:,2:3]
-    t = coords[:,3:4]
-    with tf.GradientTape(persistent=True) as tape2:
-        tape2.watch([x,y,z,t])
-        with tf.GradientTape(persistent=True) as tape1:
-            tape1.watch([x,y,z,t])
-            X  = tf.concat((x,y,z,t),1)
-            Yp = pinn.model(X)[0]
-            u  = Yp[:,0]
-            v  = Yp[:,1]
-            w  = Yp[:,2]
-            p  = Yp[:,3]
-
-        # First derivatives
-        u_t = tape1.gradient(u, t)[:,0]
-        v_t = tape1.gradient(v, t)[:,0]
-        w_t = tape1.gradient(w, t)[:,0]
-
-        u_x = tape1.gradient(u, x)[:,0]
-        v_x = tape1.gradient(v, x)[:,0]
-        w_x = tape1.gradient(w, x)[:,0]
-        p_x = tape1.gradient(w, x)[:,0]
-
-        u_y = tape1.gradient(u, y)[:,0]
-        v_y = tape1.gradient(v, y)[:,0]
-        w_y = tape1.gradient(w, y)[:,0]
-        p_y = tape1.gradient(w, y)[:,0]
-
-        u_z = tape1.gradient(u, z)[:,0]
-        v_z = tape1.gradient(v, z)[:,0]
-        w_z = tape1.gradient(w, z)[:,0]
-        p_z = tape1.gradient(w, z)[:,0]
-
-        S11 = u_x
-        S12 = 0.5*(u_y+v_x)
-        S13 = 0.5*(u_z+w_x)
-        S22 = v_y
-        S23 = 0.5*(v_z+w_y)
-        S33 = w_z
-
-        vl    = 1.006e-3
-        delta = 40*vl
-        c_s   = params[0]
-        eddy_viscosity = (c_s*delta)**2*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
-                                                            S22**2+2*S23**2+
-                                                                     S33**2))
-        tau11 = -2*eddy_viscosity*S11
-        tau12 = -2*eddy_viscosity*S12
-        tau13 = -2*eddy_viscosity*S13
-        tau22 = -2*eddy_viscosity*S22
-        tau23 = -2*eddy_viscosity*S23
-        tau33 = -2*eddy_viscosity*S33
-        del tape1
-
-    # Second derivatives
-    u_xx = tape2.gradient(u_x, x)[:,0]
-    v_xx = tape2.gradient(v_x, x)[:,0]
-    w_xx = tape2.gradient(w_x, x)[:,0]
-
-    u_yy = tape2.gradient(u_y, y)[:,0]
-    v_yy = tape2.gradient(v_y, y)[:,0]
-    w_yy = tape2.gradient(w_y, y)[:,0]
-
-    u_zz = tape2.gradient(u_z, z)[:,0]
-    v_zz = tape2.gradient(v_z, z)[:,0]
-    w_zz = tape2.gradient(w_z, z)[:,0]
-    
-    tau11_x = tape2.gradient(tau11, x)[:,0]
-    tau21_x = tape2.gradient(tau12, x)[:,0]
-    tau31_x = tape2.gradient(tau13, x)[:,0]
-
-    tau12_y = tape2.gradient(tau12, y)[:,0]
-    tau22_y = tape2.gradient(tau22, y)[:,0]  
-    tau32_y = tape2.gradient(tau23, y)[:,0]  
-
-    tau13_z = tape2.gradient(tau13, z)[:,0]
-    tau23_z = tape2.gradient(tau23, z)[:,0]  
-    tau33_z = tape2.gradient(tau33, z)[:,0]  
-    del tape2
-
-    # Equations to be enforced
-    nu = 5e-5
-    f0 = u_x+v_y+w_z
-    f1 = (u_t + u*u_x + v*u_y + w*u_z +
-            p_x - nu*(u_xx+u_yy+u_zz) + tau11_x + tau12_y + tau13_z)
-    f2 = (v_t + u*v_x + v*v_y + w*v_z +
-            p_y - nu*(v_xx+v_yy+v_zz) + tau21_x + tau22_y + tau23_z)
-    f3 = (w_t + u*w_x + v*w_y + w*w_z +
-            p_z - nu*(w_xx+w_yy+w_zz) + tau31_x + tau32_y + tau33_z)
-        
-    return [f0, f1, f2, f3]
-
-def NS3D(pinn, coords, params):
-    """ NS 3D equations """
-
-    x = coords[:,0:1]
-    y = coords[:,1:2]
-    z = coords[:,2:3]
-    t = coords[:,3:4]
-    with tf.GradientTape(persistent=True) as tape2:
-        tape2.watch([x,y,z,t])
-        with tf.GradientTape(persistent=True) as tape1:
-            tape1.watch([x,y,z,t])
-            X  = tf.concat((x,y,z,t),1)
-            Yp = pinn.model(X)[0]
-            u  = Yp[:,0]
-            v  = Yp[:,1]
-            w  = Yp[:,2]
-            p  = Yp[:,3]
-
-        # First derivatives
-        u_t = tape1.gradient(u, t)[:,0]
-        v_t = tape1.gradient(v, t)[:,0]
-        w_t = tape1.gradient(w, t)[:,0]
-
-        u_x = tape1.gradient(u, x)[:,0]
-        v_x = tape1.gradient(v, x)[:,0]
-        w_x = tape1.gradient(w, x)[:,0]
-        p_x = tape1.gradient(w, x)[:,0]
-
-        u_y = tape1.gradient(u, y)[:,0]
-        v_y = tape1.gradient(v, y)[:,0]
-        w_y = tape1.gradient(w, y)[:,0]
-        p_y = tape1.gradient(w, y)[:,0]
-
-        u_z = tape1.gradient(u, z)[:,0]
-        v_z = tape1.gradient(v, z)[:,0]
-        w_z = tape1.gradient(w, z)[:,0]
-        p_z = tape1.gradient(w, z)[:,0]
-
-        del tape1
-
-    # Second derivatives
-    u_xx = tape2.gradient(u_x, x)[:,0]
-    v_xx = tape2.gradient(v_x, x)[:,0]
-    w_xx = tape2.gradient(w_x, x)[:,0]
-
-    u_yy = tape2.gradient(u_y, y)[:,0]
-    v_yy = tape2.gradient(v_y, y)[:,0]
-    w_yy = tape2.gradient(w_y, y)[:,0]
-
-    u_zz = tape2.gradient(u_z, z)[:,0]
-    v_zz = tape2.gradient(v_z, z)[:,0]
-    w_zz = tape2.gradient(w_z, z)[:,0]
-    
-    del tape2
-
-    # Equations to be enforced
-    nu = params[0]
-    PX = params[1]
-    f0 = u_x+v_y+w_z
-    f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz))
-    f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz))
-    f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz))
-        
-    return [f0, f1, f2, f3]
