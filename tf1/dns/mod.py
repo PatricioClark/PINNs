@@ -21,18 +21,20 @@ def xavier_init(size):
                                                   dtype=tf.float64,seed=None),
                        dtype=tf.float64)
     
-def DNN(X, layers,weights, biases, act='relu'):
+def DNN(X, layers,weights, biases, act='relu', adpt=0.1):
     """A fully-connected NN"""
     if  act=='relu':
         act_fn = tf.nn.relu
     elif act=='tanh':
         act_fn = tf.nn.tanh
+    elif act=='sin':
+        act_fn = tf.sin
     L = len(layers)
     H = X 
     for l in range(0,L-2):
         W = weights[l]
         b = biases[l]
-        H = act_fn(tf.add(tf.matmul(H, W), b))
+        H = act_fn(10*adpt*tf.add(tf.matmul(H, W), b))
     W = weights[-1]
     b = biases[-1]
     Y = tf.add(tf.matmul(H, W), b)

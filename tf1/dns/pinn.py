@@ -42,7 +42,10 @@ weights = ([xavier_init([layers[l], layers[l+1]])
             for l in range(0, L-1)])
 biases  = ([tf.Variable(tf.zeros((1, layers[l+1]),dtype=tf.float64))
             for l in range(0, L-1)])
-
+if params.adp:
+    adp = tf.Variable(0.1, dtype=tf.float64)
+else:
+    adp = 0.1
 
 # Points where the data contraints are going to be imposed
 t_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
@@ -50,7 +53,7 @@ x_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_u = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 field_u,_ = DNN(tf.concat((t_u,x_u,y_u,z_u),axis=1),
-                layers, weights, biases, act=params.act)
+                layers, weights, biases, act=params.act, adpt=adp)
 u_u = field_u[:,0:1]
 v_u = field_u[:,1:2]
 w_u = field_u[:,2:3]
@@ -71,7 +74,7 @@ x_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 y_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 z_f = tf.compat.v1.placeholder(tf.float64, shape=(None,1))
 field_f,_ = DNN(tf.concat((t_f,x_f,y_f,z_f),axis=1),
-                layers, weights, biases, act=params.act)
+                layers, weights, biases, act=params.act, adpt=adp)
 u_f = field_f[:,0:1]
 v_f = field_f[:,1:2]
 w_f = field_f[:,2:3]
@@ -110,30 +113,105 @@ w_xx = tf.gradients(w_x, x_f)[0]
 w_yy = tf.gradients(w_y, y_f)[0]
 w_zz = tf.gradients(w_z, z_f)[0]
 
-# Equations to be enforced
+if params.pressure:
+    # Laplacian of pressure
+    p_xx = tf.gradients(p_x, x_f)[0]
+    p_yy = tf.gradients(p_y, y_f)[0]
+    p_zz = tf.gradients(p_z, z_f)[0]
+
+    # Grad grad u_i u_j
+    uu = u_f*u_f
+    uv = u_f*v_f
+    uw = u_f*w_f
+    vv = v_f*v_f
+    vw = v_f*w_f
+    ww = w_f*w_f
+
+    dduu = tf.gradients(uu,   x_f)[0]
+    dduu = tf.gradients(dduu, x_f)[0]
+
+    dduv = tf.gradients(uv,   x_f)[0]
+    dduv = tf.gradients(dduv, y_f)[0]
+
+    dduw = tf.gradients(uw,   x_f)[0]
+    dduw = tf.gradients(dduw, z_f)[0]
+
+    ddvv = tf.gradients(vv,   y_f)[0]
+    ddvv = tf.gradients(ddvv, y_f)[0]
+
+    ddvw = tf.gradients(vw,   y_f)[0]
+    ddvw = tf.gradients(ddvw, z_f)[0]
+
+    ddww = tf.gradients(ww,   z_f)[0]
+    ddww = tf.gradients(ddww, z_f)[0]
+
+    f0 = (p_xx+p_yy+p_zz) + (dduu + 2*dduv + 2*dduw
+                                  +   ddvv + 2*ddvw
+                                           +   ddww)
+else:
+    f0 = u_x+v_y+w_z
+
+# Params eq
 nu = 5e-5
 dPdx = 0.0025
-f0 = u_x+v_y+w_z
-f1 = (u_t + u_f*u_x + v_f*u_y + w_f*u_z +
-        p_x + dPdx - nu*(u_xx+u_yy+u_zz))
-f2 = (v_t + u_f*v_x + v_f*v_y + w_f*v_z +
-        p_y - nu*(v_xx+v_yy+v_zz))
-f3 = (w_t + u_f*w_x + v_f*w_y + w_f*w_z +
-        p_z - nu*(w_xx+w_yy+w_zz))
 
+# Equations to be enforced
 # Loss function for dynamical constraints
 lfw = tf.Variable(params.lfw, trainable=False, dtype=tf.float64)
-loss_f = lfw*(tf.reduce_mean(tf.square(f0)) +
+if   params.eqs=='momentum':
+    f1 = (u_t + u_f*u_x + v_f*u_y + w_f*u_z +
+            p_x + dPdx - nu*(u_xx+u_yy+u_zz))
+    f2 = (v_t + u_f*v_x + v_f*v_y + w_f*v_z +
+            p_y - nu*(v_xx+v_yy+v_zz))
+    f3 = (w_t + u_f*w_x + v_f*w_y + w_f*w_z +
+            p_z - nu*(w_xx+w_yy+w_zz))
+
+    loss_f = (tf.reduce_mean(tf.square(f0)) +
               tf.reduce_mean(tf.square(f1)) +
               tf.reduce_mean(tf.square(f2)) +
               tf.reduce_mean(tf.square(f3)))
-loss_f0 = tf.reduce_mean(tf.square(f0))
-loss_f1 = tf.reduce_mean(tf.square(f1))
-loss_f2 = tf.reduce_mean(tf.square(f2))
-loss_f3 = tf.reduce_mean(tf.square(f3))
+elif params.eqs=='energy':
+    eng   = 0.5*(u_f*u_f + v_f*v_f + w_f*w_f)
+    eng_t = tf.gradients(eng, t_f)[0]
+    trans = (u_f*(u_f*u_x + v_f*u_y + w_f*u_z) +
+             v_f*(u_f*v_x + v_f*v_y + w_f*v_z) +
+             w_f*(u_f*w_x + v_f*w_y + w_f*w_z))
+    prtr = u_f*(p_x + dPdx) + v_f*p_y + w_f*p_z
+    vstf = nu*(u_f*(u_xx+u_yy+u_zz) +
+               v_f*(v_xx+v_yy+v_zz) +
+               w_f*(w_xx+w_yy+w_zz))
+    feng = eng_t + trans + prtr - vstf
+
+    loss_f = (tf.reduce_mean(tf.square(feng)) +
+              tf.reduce_mean(tf.square(f0)))
+elif params.eqs=='vorticity':
+    o_x = w_y - v_z
+    o_y = u_z - w_x
+    o_z = v_x - u_y
+
+    o_xt = tf.gradients(o_x, t_f)[0]
+    o_yt = tf.gradients(o_x, t_f)[0]
+    o_zt = tf.gradients(o_x, t_f)[0]
+
+    f1 = (u_t + u_f*u_x + v_f*u_y + w_f*u_z +
+            p_x + dPdx - nu*(u_xx+u_yy+u_zz))
+    f2 = (v_t + u_f*v_x + v_f*v_y + w_f*v_z +
+            p_y - nu*(v_xx+v_yy+v_zz))
+    f3 = (w_t + u_f*w_x + v_f*w_y + w_f*w_z +
+            p_z - nu*(w_xx+w_yy+w_zz))
+
+    loss_f = (tf.reduce_mean(tf.square(f0)) +
+              tf.reduce_mean(tf.square(f1)) +
+              tf.reduce_mean(tf.square(f2)) +
+              tf.reduce_mean(tf.square(f3)))
 
 # Total loss function
-loss = loss_f + loss_u
+loss = lfw*loss_f + loss_u
+
+# Div condition
+div_norm = tf.square(u_x) + tf.square(v_y) + tf.square(w_z)
+div_cond = tf.square(u_x+v_y+w_z)/div_norm
+div_cond = tf.reduce_mean(div_cond)
 
 # Optimizer
 optimizer = tf.compat.v1.train.AdamOptimizer(5.0e-4).minimize(loss)
@@ -164,24 +242,26 @@ Nz = 64
 Nt = 150
 sample_prob = params.sample_prob
 try:
-    print("Retrieving data")
-    t_d = np.load('data/t_d.npy')
-    x_d = np.load('data/x_d.npy')
-    y_d = np.load('data/y_d.npy')
-    z_d = np.load('data/z_d.npy')
-    u_d = np.load('data/u_d.npy')
-    v_d = np.load('data/v_d.npy')
-    w_d = np.load('data/w_d.npy')
+    idx = str(sample_prob).split('.')[-1]
+    t_d = np.load(f'data/t_d_{idx}.npy')
+    x_d = np.load(f'data/x_d_{idx}.npy')
+    y_d = np.load(f'data/y_d_{idx}.npy')
+    z_d = np.load(f'data/z_d_{idx}.npy')
+    u_d = np.load(f'data/u_d_{idx}.npy')
+    v_d = np.load(f'data/v_d_{idx}.npy')
+    w_d = np.load(f'data/w_d_{idx}.npy')
+    print("Data retrieved")
 except:
     print("Regenerating data")
     t_d, x_d, y_d, z_d, u_d, v_d, w_d = generate_data(Nt, Nx, Ny, Nz, sample_prob)
-    np.save('data/t_d', t_d)
-    np.save('data/x_d', x_d)
-    np.save('data/y_d', y_d)
-    np.save('data/z_d', z_d)
-    np.save('data/u_d', u_d)
-    np.save('data/v_d', v_d)
-    np.save('data/w_d', w_d)
+    idx = str(sample_prob).split('.')[-1]
+    np.save(f'data/t_d_{idx}', t_d)
+    np.save(f'data/x_d_{idx}', x_d)
+    np.save(f'data/y_d_{idx}', y_d)
+    np.save(f'data/z_d_{idx}', z_d)
+    np.save(f'data/u_d_{idx}', u_d)
+    np.save(f'data/v_d_{idx}', v_d)
+    np.save(f'data/w_d_{idx}', w_d)
 
 # Points for plotting
 t_p, x_p, y_p, z_p = plot_points(Nx, Ny, Nz)
@@ -197,6 +277,7 @@ batches    = len(t_d)//mini_batch
 # -----------------------------------------------------------------------------
 
 # Run epochs
+t0 = time.time()
 for ep in range(params.ep0, epochs):        
     # Create batches
     idx_u = np.arange(x_d.shape[0])
@@ -239,22 +320,16 @@ for ep in range(params.ep0, epochs):
                      x_f:   x_d[idx_f[0:mini_batch]],
                      y_f:   y_d[idx_f[0:mini_batch]],
                      z_f:   z_d[idx_f[0:mini_batch]]}
-        (loss_f0_val,
-         loss_f1_val,
-         loss_f2_val,
-         loss_f3_val,
-         loss_u_val) = sess.run([loss_f0,
-                              loss_f1,
-                              loss_f2,
-                              loss_f3,
-                              loss_u], feed_dict=feed_test)
+        (loss_f_val,
+         loss_u_val,
+         div_co_val,) = sess.run([loss_f,
+                                  loss_u,
+                                  div_cond], feed_dict=feed_test)
         output_file = open(params.paths.dest+'output.dat', 'a')
         print(ep,
-              loss_f0_val,
-              loss_f1_val,
-              loss_f2_val,
-              loss_f3_val,
+              loss_f_val,
               loss_u_val,
+              div_co_val,
               file=output_file)
         output_file.close()
 
@@ -275,6 +350,7 @@ for ep in range(params.ep0, epochs):
 
         # Save session
         saver.save(sess, params.paths.dest+"session")
+print('Training time', time.time()-t0)
 
     # if params.change:
     #     if ep== 20: sess.run(lfw.assign(0.1))

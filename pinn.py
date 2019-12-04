@@ -8,6 +8,7 @@ import numpy as np
 import tensorflow as tf
 from   tensorflow import keras
 
+tf.keras.backend.set_floatx('float64')
 class PhysicsInformedNN:
     """
     General PINN class
@@ -59,7 +60,7 @@ class PhysicsInformedNN:
                  layers,
                  dest='./',
                  activation='tanh',
-                 optimizer=keras.optimizers.Adam(lr=0.01),
+                 optimizer=keras.optimizers.Adam(lr=5e-4),
                  normalize=False,
                  eq_params=[],
                  inverse=False,
@@ -281,7 +282,8 @@ class PhysicsInformedNN:
             Y_pred = output[0]
             p_pred = output[1:]
             aux = [tf.reduce_mean(tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
-                   if data_mask[ii] else 0 for ii in range(self.dout)]
+                   for ii in range(self.dout)
+                   if data_mask[ii]]
             loss_data = tf.add_n(aux)
 
             # Grab inverse coefs
@@ -321,11 +323,12 @@ class PhysicsInformedNN:
             print(ep, f'{lu}', f'{lf}')
 
         # Inverse coefficients
-        output_file = open(self.dest + 'inverse.dat', 'a')
         if self.inverse:
-            print(ep, *[pp.numpy() for pp in inv_outputs],
-                  file=output_file)
-        output_file.close()
+            output_file = open(self.dest + 'inverse.dat', 'a')
+            if self.inverse:
+                print(ep, *[pp.numpy() for pp in inv_outputs],
+                      file=output_file)
+            output_file.close()
 
     def grad(self, coords):
         """
@@ -408,11 +411,6 @@ class PhysicsInformedNN:
         del tape2
 
         return Yp, df, d2f
-
-def random_batch(X, Y, batch_size=32):
-    """ Generate random batch of data and inputs """
-    idx = np.random.randint(len(X), size=batch_size)
-    return X[idx], Y[idx]
 
 class AdaptiveAct(keras.layers.Layer):
     """ Adaptive activation function """

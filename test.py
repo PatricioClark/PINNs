@@ -44,8 +44,8 @@ def some_eqs(model, coords, params):
 numps = 50
 p     = 1.0
 idxs  = np.random.choice([True, False], size=numps, p=[p,p-1])
-x1    = np.linspace(-1,1,num=numps, dtype=np.float32)[idxs]
-x2    = np.linspace(-1,1,num=numps, dtype=np.float32)[idxs]
+x1    = np.linspace(-1,1,num=numps, dtype=np.float64)[idxs]
+x2    = np.linspace(-1,1,num=numps, dtype=np.float64)[idxs]
 xt1, xt2 = np.meshgrid(x1, x2, indexing='ij')
 xt1 = xt1.flatten().reshape(-1,1)
 xt2 = xt2.flatten().reshape(-1,1)
@@ -57,17 +57,18 @@ X = np.concatenate((xt1,xt2), 1)
 Y = np.concatenate((yt1,yt2), 1)
 
 # For plotting
-x1 = np.linspace(-1,1,num=numps, dtype=np.float32)
-x2 = np.linspace(-1,1,num=numps, dtype=np.float32)
+x1 = np.linspace(-1,1,num=numps, dtype=np.float64)
+x2 = np.linspace(-1,1,num=numps, dtype=np.float64)
 x1 = x1.reshape(-1,1)
 x2 = x2.reshape(-1,1)
-zs = np.zeros(numps, dtype=np.float32).reshape(-1,1)
+zs = np.zeros(numps, dtype=np.float64).reshape(-1,1)
 
 # -----------------------------------------------------------------------------
 # Initialize PINN
 # -----------------------------------------------------------------------------
 layers  = [2] + 2*[64] + [2]
 PINN = PhysicsInformedNN(layers,
+                         dest='./odir/',
                          eq_params=[2,3],
                          inverse=['const', False],
                          restore=False)
@@ -85,12 +86,12 @@ print('Time per epoch:', (time.time()-t0)/100)
 # Plot and validate
 # -----------------------------------------------------------------------------
 
-prefix = 'fig'
+prefix = 'odir/fig'
 
 # Plot loss functions
-ep, lu, lf = np.loadtxt('output.dat', unpack=True)
+ep, lu, lf = np.loadtxt('odir/output.dat', unpack=True)
 
-ep, c1 = np.loadtxt('inverse.dat', unpack=True)
+ep, c1 = np.loadtxt('odir/inverse.dat', unpack=True)
 
 plt.figure(0)
 plt.plot(ep, lu, label='Data loss')
