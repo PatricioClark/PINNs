@@ -218,16 +218,23 @@ class PhysicsInformedNN:
             Number of epochs to train
         batch_size : int
             Size of batches
-        lambda_data : int [optional]
-            Weight of the data part of the loss function.
-        lambda_phys : int [optional]
-            Weight of the physiscs part of the loss function.
+        lambda_data : float or array [optional]
+            Weight of the data part of the loss function. If it is an array, it
+            should be the same length as X_data, each entry will correspond to
+            the particular lambda_data of the corresponding data point.
+        lambda_phys : float or array [optional]
+            Weight of the physics part of the loss function. If it is an, array
+            it should be the same length as X_data, each entry will correspond
+            to the particular lambda_phys of the corresponding data point.
         verbose : bool [optional]
             Verbose output or not. Default is False.
         print_freq : int [optional]
             Print status frequency. Default is 1.
         save_freq : int [optional]
             Save model frequency. Default is 1.
+        timer : bool [optional]
+            If True, print time per batch for the first 10 batches. Default is
+            False.
         data_mask : list [optional]
             Determine which output fields to use in the data constraint. Must have
             shape (dout,) with either True or False in each element. Default is
@@ -238,10 +245,6 @@ class PhysicsInformedNN:
         if data_mask is None:
             data_mask = [True for _ in range(self.dout)]
 
-        # Cast to tf variables
-        lambda_data = tf.constant(lambda_data, dtype='float64')
-        lambda_phys = tf.constant(lambda_phys, dtype='float64')
-
         # Run epochs
         ep0     = int(self.ckpt.step)
         batches = X_data.shape[0] // batch_size
@@ -251,19 +254,27 @@ class PhysicsInformedNN:
             for ba in range(batches):
                 sl_ba = slice(ba*batch_size, (ba+1)*batch_size)
 
-                # Create batches
+                # Create batches and cast to TF objects
                 X_batch = X_data[idxs[sl_ba]]
                 Y_batch = Y_data[idxs[sl_ba]]
                 X_batch = tf.convert_to_tensor(X_batch)
                 Y_batch = tf.convert_to_tensor(Y_batch)
+                try:
+                    l_data = lambda_data[idxs[sl_ba]]
+                    l_phys = lambda_phys[idxs[sl_ba]]
+                except TypeError:
+                    l_data = lambda_data
+                    l_phys = lambda_phys
+                l_data = tf.constant(l_data, dtype='float64')
+                l_phys = tf.constant(l_phys, dtype='float64')
 
                 if timer: t0 = time.time()
                 (loss_data,
                  loss_phys,
                  inv_outputs) = self.training_step(X_batch, Y_batch,
                                                    pde,
-                                                   lambda_data,
-                                                   lambda_phys,
+                                                   l_data,
+                                                   l_phys,
                                                    data_mask)
                 if timer:
                     print("Time per batch:", time.time()-t0)
@@ -290,7 +301,8 @@ class PhysicsInformedNN:
             output = self.model(X_batch)
             Y_pred = output[0]
             p_pred = output[1:]
-            aux = [tf.reduce_mean(tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
+            aux = [tf.reduce_mean(
+                   lambda_data*tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
                    for ii in range(self.dout)
                    if data_mask[ii]]
             loss_data = tf.add_n(aux)
@@ -305,12 +317,13 @@ class PhysicsInformedNN:
 
             # Physics part
             equations = pde(self.model, X_batch, self.eval_params)
-            aux       = [tf.reduce_mean(tf.square(eq))
+            aux       = [tf.reduce_mean(
+                         lambda_phys*tf.square(eq))
                          for eq in equations]
             loss_phys = tf.add_n(aux)
 
             # Total loss function
-            loss = lambda_data*loss_data + lambda_phys*loss_phys
+            loss = loss_data + loss_phys
 
         # Calculate and apply gradients
         gradients = tape.gradient(loss,
