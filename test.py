@@ -76,7 +76,7 @@ PINN = PhysicsInformedNN(layers,
 # -----------------------------------------------------------------------------
 # Train PINN
 # -----------------------------------------------------------------------------
-PINN.train(X, Y, some_eqs, epochs=1, batch_size=32, verbose=False)
+PINN.train(X, Y, some_eqs, epochs=1, batch_size=32, verbose=False, timer=True)
 
 t0 = time.time()
 PINN.train(X, Y, some_eqs, epochs=100, batch_size=32, verbose=False)

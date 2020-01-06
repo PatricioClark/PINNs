@@ -7,6 +7,7 @@ import copy
 import numpy as np
 import tensorflow as tf
 from   tensorflow import keras
+import time
 
 tf.keras.backend.set_floatx('float64')
 class PhysicsInformedNN:
@@ -191,6 +192,7 @@ class PhysicsInformedNN:
               verbose=False,
               print_freq=1,
               save_freq=1,
+              timer=False,
               data_mask=None):
         """
         Train function
@@ -236,6 +238,10 @@ class PhysicsInformedNN:
         if data_mask is None:
             data_mask = [True for _ in range(self.dout)]
 
+        # Cast to tf variables
+        lambda_data = tf.constant(lambda_data, dtype='float64')
+        lambda_phys = tf.constant(lambda_phys, dtype='float64')
+
         # Run epochs
         ep0     = int(self.ckpt.step)
         batches = X_data.shape[0] // batch_size
@@ -251,6 +257,7 @@ class PhysicsInformedNN:
                 X_batch = tf.convert_to_tensor(X_batch)
                 Y_batch = tf.convert_to_tensor(Y_batch)
 
+                if timer: t0 = time.time()
                 (loss_data,
                  loss_phys,
                  inv_outputs) = self.training_step(X_batch, Y_batch,
@@ -258,7 +265,9 @@ class PhysicsInformedNN:
                                                    lambda_data,
                                                    lambda_phys,
                                                    data_mask)
-
+                if timer:
+                    print("Time per batch:", time.time()-t0)
+                    if ba>10: timer = False
 
             # Print status
             if ep%print_freq==0:
