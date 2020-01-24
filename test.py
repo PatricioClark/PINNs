@@ -76,17 +76,21 @@ PINN = PhysicsInformedNN(layers,
 # -----------------------------------------------------------------------------
 # Train PINN
 # -----------------------------------------------------------------------------
+alpha = 0.0
 PINN.train(X, Y, some_eqs, epochs=1,
            lambda_data=np.array([1.0 for _ in range(len(X))]),
            lambda_phys=np.array([1.0 for _ in range(len(X))]),
+           alpha=alpha,
            batch_size=32, verbose=False, timer=True)
 
 t0 = time.time()
-PINN.train(X, Y, some_eqs, epochs=100,
+tot_eps = 400
+PINN.train(X, Y, some_eqs, epochs=tot_eps,
            lambda_data=np.array([1.0 for _ in range(len(X))]),
            lambda_phys=np.array([1.0 for _ in range(len(X))]),
-           batch_size=32, verbose=False)
-print('Time per epoch:', (time.time()-t0)/100)
+           alpha=alpha,
+           batch_size=32, verbose=False, timer=False)
+print('Time per epoch:', (time.time()-t0)/tot_eps)
 
 # -----------------------------------------------------------------------------
 # Plot and validate

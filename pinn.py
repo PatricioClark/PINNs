@@ -26,6 +26,10 @@ class PhysicsInformedNN:
     of the entries contains the different learned parameters when running an
     inverse PINN or a dummy output that should be disregarded when not.
 
+    Training can be done usuing the adaptive balance described in
+    "Understanding and mitigating gradient pathologies in physics-informed
+    neural networks" by Wang, Teng & Perdikaris (2020).
+
     A few definitions before proceeding to the initialization parameters:
     
     din   = input dims
@@ -127,6 +131,12 @@ class PhysicsInformedNN:
         # Create model
         model = keras.Model(inputs=coords, outputs=[fields]+self.inv_outputs)
         self.model = model
+        self.num_trainable_vars = np.sum([np.prod(v.shape)
+                                          for v in self.model.trainable_variables])
+
+        # Parameter for balance/adaptive lambda
+        # Can be modified from the outside before calling PINN.train
+        self.balance = 1.0
 
         # Create save checkpoints / Load if existing previous
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
@@ -189,6 +199,7 @@ class PhysicsInformedNN:
               epochs, batch_size,
               lambda_data=1.0,
               lambda_phys=1.0,
+              alpha=0.0,
               verbose=False,
               print_freq=1,
               save_freq=1,
@@ -226,6 +237,10 @@ class PhysicsInformedNN:
             Weight of the physics part of the loss function. If it is an, array
             it should be the same length as X_data, each entry will correspond
             to the particular lambda_phys of the corresponding data point.
+        alpha : float [optional]
+            If non-zero, performs adaptive balance of the physics and data part
+            of the loss functions. See comment above for reference. Default is
+            zero.
         verbose : bool [optional]
             Verbose output or not. Default is False.
         print_freq : int [optional]
@@ -244,6 +259,9 @@ class PhysicsInformedNN:
         # Check data_mask
         if data_mask is None:
             data_mask = [True for _ in range(self.dout)]
+
+        # Cast balance
+        balance = tf.constant(self.balance, dtype='float64')
 
         # Run epochs
         ep0     = int(self.ckpt.step)
@@ -267,15 +285,20 @@ class PhysicsInformedNN:
                     l_phys = lambda_phys
                 l_data = tf.constant(l_data, dtype='float64')
                 l_phys = tf.constant(l_phys, dtype='float64')
+                ba_counter = tf.constant(ba)
 
                 if timer: t0 = time.time()
                 (loss_data,
                  loss_phys,
-                 inv_outputs) = self.training_step(X_batch, Y_batch,
+                 inv_outputs,
+                 balance) = self.training_step(X_batch, Y_batch,
                                                    pde,
                                                    l_data,
                                                    l_phys,
-                                                   data_mask)
+                                                   data_mask,
+                                                   balance,
+                                                   alpha,
+                                                   ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
                     if ba>10: timer = False
@@ -291,12 +314,13 @@ class PhysicsInformedNN:
             self.ckpt.step.assign_add(1)
             if ep%save_freq==0:
                 self.manager.save()
+        self.balance = balance.numpy()
 
     @tf.function
     def training_step(self, X_batch, Y_batch,
                       pde, lambda_data, lambda_phys,
-                      data_mask):
-        with tf.GradientTape() as tape:
+                      data_mask, balance, alpha, ba):
+        with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(X_batch)
             Y_pred = output[0]
@@ -317,21 +341,51 @@ class PhysicsInformedNN:
 
             # Physics part
             equations = pde(self.model, X_batch, self.eval_params)
-            aux       = [tf.reduce_mean(
+            loss_eqs  = [tf.reduce_mean(
                          lambda_phys*tf.square(eq))
                          for eq in equations]
-            loss_phys = tf.add_n(aux)
+            loss_phys = tf.add_n(loss_eqs)
 
             # Total loss function
             loss = loss_data + loss_phys
 
-        # Calculate and apply gradients
-        gradients = tape.gradient(loss,
-                    self.model.trainable_variables)
+        # Calculate gradients of data part
+        gradients_data = tape.gradient(loss_data,
+                    self.model.trainable_variables,
+                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+
+        # Calculate gradients of physics part
+        full_eqs = True
+        if full_eqs:
+            gradients_phys = tape.gradient(loss_phys,
+                        self.model.trainable_variables,
+                        unconnected_gradients=tf.UnconnectedGradients.ZERO)
+        else:
+            gradients_phys = [tape.gradient(leq,
+                        self.model.trainable_variables,
+                        unconnected_gradients=tf.UnconnectedGradients.ZERO)
+                        for leq in loss_eqs]
+            gradients_phys = [tf.add_n(x) for x in zip(*gradients_phys)]
+
+        # Delete tape
+        del tape
+
+        # If doing adaptive balance, calculate balance
+        if alpha>0.0 and ba%10==0:
+            mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
+            max_grad_phys  = get_max_grad(gradients_phys)
+            if max_grad_phys>0:
+                lhat = max_grad_phys/mean_grad_data
+            else:
+                lhat = balance
+            balance = (1.0-alpha)*balance + alpha*lhat
+
+        # Apply gradients
+        gradients = [x + balance*y for x,y in zip(gradients_phys, gradients_data)]
         self.optimizer.apply_gradients(zip(gradients,
                     self.model.trainable_variables))
 
-        return loss_data, loss_phys, [param[0][0] for param in p_pred]
+        return loss_data, loss_phys, [param[0][0] for param in p_pred], balance
 
     def print_status(self, ep, lu, lf, inv_outputs, verbose=False):
         """ Print status function """
@@ -433,6 +487,18 @@ class PhysicsInformedNN:
         del tape2
 
         return Yp, df, d2f
+
+@tf.function
+def get_mean_grad(grads, n):
+    sum_over_layers = [tf.reduce_sum(tf.abs(gr)) for gr in grads]
+    total_sum       = tf.add_n(sum_over_layers)
+    return total_sum/n
+
+@tf.function
+def get_max_grad(grads):
+    max_of_layers = [tf.reduce_max(tf.abs(gr)) for gr in grads]
+    total_max       = tf.reduce_max(max_of_layers)
+    return total_max
 
 class AdaptiveAct(keras.layers.Layer):
     """ Adaptive activation function """
