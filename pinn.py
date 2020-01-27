@@ -136,15 +136,17 @@ class PhysicsInformedNN:
 
         # Parameter for balance/adaptive lambda
         # Can be modified from the outside before calling PINN.train
-        self.balance = 1.0
+        self.balance = tf.Variable(1.0, name='balance')
 
         # Create save checkpoints / Load if existing previous
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
+                                           balance=self.balance,
                                            optimizer=self.optimizer)
         self.manager = tf.train.CheckpointManager(self.ckpt, self.dest, max_to_keep=5)
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
+            self.balance = self.ckpt.balance
 
     def generate_inverse(self, coords):
         """
@@ -261,7 +263,7 @@ class PhysicsInformedNN:
             data_mask = [True for _ in range(self.dout)]
 
         # Cast balance
-        balance = tf.constant(self.balance, dtype='float64')
+        balance = tf.constant(self.balance.numpy(), dtype='float64')
 
         # Run epochs
         ep0     = int(self.ckpt.step)
@@ -312,9 +314,9 @@ class PhysicsInformedNN:
                                   verbose=verbose)
             # Save progress
             self.ckpt.step.assign_add(1)
+            self.ckpt.balance.assign(balance.numpy())
             if ep%save_freq==0:
                 self.manager.save()
-        self.balance = balance.numpy()
 
     @tf.function
     def training_step(self, X_batch, Y_batch,

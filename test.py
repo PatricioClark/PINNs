@@ -66,22 +66,26 @@ zs = np.zeros(numps, dtype=np.float64).reshape(-1,1)
 # -----------------------------------------------------------------------------
 # Initialize PINN
 # -----------------------------------------------------------------------------
+lr = keras.optimizers.schedules.ExponentialDecay(1e-3, 1000, 0.9)
 layers  = [2] + 2*[64] + [2]
 PINN = PhysicsInformedNN(layers,
                          dest='./odir/',
+                         optimizer=keras.optimizers.Adam(lr),
                          eq_params=[2,3],
                          inverse=['const', False],
                          restore=False)
+print('Learning rate:', PINN.optimizer._decayed_lr(tf.float32))
 
 # -----------------------------------------------------------------------------
 # Train PINN
 # -----------------------------------------------------------------------------
-alpha = 0.0
-PINN.train(X, Y, some_eqs, epochs=1,
+alpha = 0.9
+PINN.train(X, Y, some_eqs, epochs=2,
            lambda_data=np.array([1.0 for _ in range(len(X))]),
            lambda_phys=np.array([1.0 for _ in range(len(X))]),
            alpha=alpha,
            batch_size=32, verbose=False, timer=True)
+print('Learning rate:', PINN.optimizer._decayed_lr(tf.float32))
 
 t0 = time.time()
 tot_eps = 400
