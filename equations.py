@@ -530,15 +530,21 @@ def LES3DSmagMasonNormTerms(model, coords, params):
           tau31_x + tau32_y + tau33_z)
 
     return ([u_x, v_y, w_z],
-            [u_t, u*u_x, v*u_y, w*u_z, p_x, PX,
-                -nu*u_xx, -nu*u_yy, -nu*u_zz,
-                 tau11_x,  tau12_y,  tau13_z],
-            [v_t, u*v_x, v*v_y, v*u_z, p_y, 0
-                -nu*v_xx, -nu*v_yy, -nu*v_zz,
-                 tau21_x,  tau22_y,  tau23_z],
-            [w_t, u*w_x, v*w_y, w*w_z, p_z, 0,
-                -nu*w_xx, -nu*w_yy, -nu*w_zz,
-                 tau31_x,  tau32_y,  tau33_z])
+            [u_t,
+             u*u_x, v*u_y, w*u_z,
+             p_x, PX*tf.ones(p_x.shape, dtype=p_x.dtype),
+            -nu*u_xx, -nu*u_yy, -nu*u_zz,
+             tau11_x,  tau12_y,  tau13_z],
+            [v_t,
+             u*v_x, v*v_y, v*u_z,
+             p_y, 0*tf.ones(p_y.shape, dtype=p_y.dtype),
+            -nu*v_xx, -nu*v_yy, -nu*v_zz,
+             tau21_x,  tau22_y,  tau23_z],
+            [w_t,
+             u*w_x, v*w_y, w*w_z,
+             p_z, 0*tf.ones(p_z.shape, dtype=p_z.dtype),
+            -nu*w_xx, -nu*w_yy, -nu*w_zz,
+             tau31_x,  tau32_y,  tau33_z])
 
 @tf.function
 def LES3DNonl(model, coords, params):
