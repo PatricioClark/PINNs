@@ -162,9 +162,9 @@ def LES3DSmag(model, coords, params):
     f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz) +
           tau11_x + tau12_y + tau13_z)
     f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau21_x + tau22_y + tau23_z)
     f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau31_x + tau32_y + tau33_z)
 
     return [f0, f1, f2, f3]
 
@@ -266,9 +266,9 @@ def LES3DSmagMason(model, coords, params):
     f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz) +
           tau11_x + tau12_y + tau13_z)
     f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau21_x + tau22_y + tau23_z)
     f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau31_x + tau32_y + tau33_z)
 
     return [f0, f1, f2, f3]
 
@@ -313,8 +313,8 @@ def LES3DSmagMasonNorm(model, coords, params):
             tape1.watch(coords)
             Yp = model(coords)[0]
             u  = sig_u*Yp[:,0] + U
-            v  = sig_u*Yp[:,1] + V
-            w  = sig_u*Yp[:,2] + W
+            v  = sig_v*Yp[:,1] + V
+            w  = sig_w*Yp[:,2] + W
             p  = Yp[:,3]
 
         # First derivatives
@@ -391,15 +391,154 @@ def LES3DSmagMasonNorm(model, coords, params):
     p_z = jz*grad_p[:,3]
 
     # Equations to be enforced
-    f0 = u_x+v_y+w_z
+    f0 = u_x + v_y + w_z
     f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz) +
           tau11_x + tau12_y + tau13_z)
     f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau21_x + tau22_y + tau23_z)
     f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau31_x + tau32_y + tau33_z)
 
     return [f0/sig_eq0, f1/sig_eq1, f2/sig_eq2, f3/sig_eq3]
+
+@tf.function
+def LES3DSmagMasonNormTerms(model, coords, params):
+    """ LES 3D equations with Smagorinsky model and Mason wall damping 
+        These equations re-normalize the inputs and outputs used from the NN 
+        Each term is outputted independently now """
+
+    PX    = params[0]
+    nu    = params[1]
+    delta = params[2]
+    c_s   = params[3]
+    kappa = params[4]
+    n_mwd = params[5]
+    U     = params[6]
+    V     = params[7]
+    W     = params[8]
+    sig_u = params[9]
+    sig_v = params[10]
+    sig_w = params[11]
+    t_min = params[12]
+    t_max = params[13]
+    x_min = params[14]
+    x_max = params[15]
+    y_min = params[16]
+    y_max = params[17]
+    z_min = params[18]
+    z_max = params[19]
+    sig_eq0 = params[20]
+    sig_eq1 = params[21]
+    sig_eq2 = params[22]
+    sig_eq3 = params[23]
+
+    jt = 0.5*(t_max-t_min)
+    jx = 0.5*(x_max-x_min)
+    jy = 0.5*(y_max-y_min)
+    jz = 0.5*(z_max-z_min)
+    
+    with tf.GradientTape(persistent=True) as tape2:
+        tape2.watch(coords)
+        with tf.GradientTape(persistent=True) as tape1:
+            tape1.watch(coords)
+            Yp = model(coords)[0]
+            u  = sig_u*Yp[:,0] + U
+            v  = sig_v*Yp[:,1] + V
+            w  = sig_w*Yp[:,2] + W
+            p  = Yp[:,3]
+
+        # First derivatives
+        grad_u = tape1.gradient(u, coords)
+        u_x = jx*grad_u[:,1]
+        u_y = jy*grad_u[:,2]
+        u_z = jz*grad_u[:,3]
+
+        grad_v = jy*tape1.gradient(v, coords)
+        v_x = jx*grad_v[:,1]
+        v_y = jy*grad_v[:,2]
+        v_z = jz*grad_v[:,3]
+
+        grad_w = tape1.gradient(w, coords)
+        w_x = jx*grad_w[:,1]
+        w_y = jy*grad_w[:,2]
+        w_z = jz*grad_w[:,3]
+
+        grad_p = tape1.gradient(p, coords)
+
+        S11 = u_x
+        S12 = 0.5*(u_y+v_x)
+        S13 = 0.5*(u_z+w_x)
+        S22 = v_y
+        S23 = 0.5*(v_z+w_y)
+        S33 = w_z
+
+        l0 = c_s*delta
+        damped = (l0**(-n_mwd) + (kappa*coords[:,2])**(-n_mwd))**(-1.0/n_mwd)
+        eddy_viscosity = (damped)**2*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
+                                                         S22**2+2*S23**2+
+                                                                  S33**2))
+        tau11 = -2*eddy_viscosity*S11
+        tau12 = -2*eddy_viscosity*S12
+        tau13 = -2*eddy_viscosity*S13
+        tau22 = -2*eddy_viscosity*S22
+        tau23 = -2*eddy_viscosity*S23
+        tau33 = -2*eddy_viscosity*S33
+        del tape1
+
+    # Second derivatives
+    u_xx = jx*tape2.gradient(u_x, coords)[:,1]
+    v_xx = jx*tape2.gradient(v_x, coords)[:,1]
+    w_xx = jx*tape2.gradient(w_x, coords)[:,1]
+
+    u_yy = jy*tape2.gradient(u_y, coords)[:,2]
+    v_yy = jy*tape2.gradient(v_y, coords)[:,2]
+    w_yy = jy*tape2.gradient(w_y, coords)[:,2]
+
+    u_zz = jz*tape2.gradient(u_z, coords)[:,3]
+    v_zz = jz*tape2.gradient(v_z, coords)[:,3]
+    w_zz = jz*tape2.gradient(w_z, coords)[:,3]
+    
+    tau11_x = jx*tape2.gradient(tau11, coords)[:,1]
+    tau21_x = jx*tape2.gradient(tau12, coords)[:,1]
+    tau31_x = jx*tape2.gradient(tau13, coords)[:,1]
+
+    tau12_y = jy*tape2.gradient(tau12, coords)[:,2]
+    tau22_y = jy*tape2.gradient(tau22, coords)[:,2]
+    tau32_y = jy*tape2.gradient(tau23, coords)[:,2]
+
+    tau13_z = jz*tape2.gradient(tau13, coords)[:,3]
+    tau23_z = jz*tape2.gradient(tau23, coords)[:,3]
+    tau33_z = jz*tape2.gradient(tau33, coords)[:,3]
+    del tape2
+
+    # First derivates that are not differentiated a second time
+    u_t = jt*grad_u[:,0]
+    v_t = jt*grad_v[:,0]
+    w_t = jt*grad_w[:,0]
+
+    p_x = jx*grad_p[:,1]
+    p_y = jy*grad_p[:,2]
+    p_z = jz*grad_p[:,3]
+
+    # Equations to be enforced
+    f0 = u_x + v_y + w_z
+    f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz) +
+          tau11_x + tau12_y + tau13_z)
+    f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz) +
+          tau21_x + tau22_y + tau23_z)
+    f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz) +
+          tau31_x + tau32_y + tau33_z)
+
+    return ([u_x, v_y, w_z],
+            [u_t, u*u_x, v*u_y, w*u_z, p_x, PX,
+                -nu*u_xx, -nu*u_yy, -nu*u_zz,
+                 tau11_x,  tau12_y,  tau13_z],
+            [v_t, u*v_x, v*v_y, v*u_z, p_y, 0
+                -nu*v_xx, -nu*v_yy, -nu*v_zz,
+                 tau21_x,  tau22_y,  tau23_z],
+            [w_t, u*w_x, v*w_y, w*w_z, p_z, 0,
+                -nu*w_xx, -nu*w_yy, -nu*w_zz,
+                 tau31_x,  tau32_y,  tau33_z])
 
 @tf.function
 def LES3DNonl(model, coords, params):
@@ -545,8 +684,8 @@ def LES3DNonl(model, coords, params):
     f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz) +
           tau11_x + tau12_y + tau13_z)
     f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau21_x + tau22_y + tau23_z)
     f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz) +
-          tau11_x + tau12_y + tau13_z)
+          tau31_x + tau32_y + tau33_z)
 
     return [f0, f1, f2, f3]
