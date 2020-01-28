@@ -146,7 +146,6 @@ class PhysicsInformedNN:
         self.manager = tf.train.CheckpointManager(self.ckpt, self.dest, max_to_keep=5)
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
-            self.balance = self.ckpt.balance
 
     def generate_inverse(self, coords):
         """
@@ -311,6 +310,7 @@ class PhysicsInformedNN:
                                   loss_data,
                                   loss_phys,
                                   inv_outputs,
+                                  alpha,
                                   verbose=verbose)
             # Save progress
             self.ckpt.step.assign_add(1)
@@ -389,7 +389,7 @@ class PhysicsInformedNN:
 
         return loss_data, loss_phys, [param[0][0] for param in p_pred], balance
 
-    def print_status(self, ep, lu, lf, inv_outputs, verbose=False):
+    def print_status(self, ep, lu, lf, inv_outputs, alpha, verbose=False):
         """ Print status function """
 
         # Loss functions
@@ -406,6 +406,13 @@ class PhysicsInformedNN:
             if self.inverse:
                 print(ep, *[pp.numpy() for pp in inv_outputs],
                       file=output_file)
+            output_file.close()
+
+        # Balance lambda
+        if alpha:
+            output_file = open(self.dest + 'balance.dat', 'a')
+            print(ep, self.balance,
+                  file=output_file)
             output_file.close()
 
     def grad(self, coords):
