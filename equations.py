@@ -520,15 +520,7 @@ def LES3DSmagMasonNormTerms(model, coords, params):
     p_y = jy*grad_p[:,2]
     p_z = jz*grad_p[:,3]
 
-    # Equations to be enforced
-    f0 = u_x + v_y + w_z
-    f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz) +
-          tau11_x + tau12_y + tau13_z)
-    f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz) +
-          tau21_x + tau22_y + tau23_z)
-    f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz) +
-          tau31_x + tau32_y + tau33_z)
-
+    # Output terms
     return ([u_x, v_y, w_z],
             [u_t,
              u*u_x, v*u_y, w*u_z,

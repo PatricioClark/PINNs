@@ -411,7 +411,7 @@ class PhysicsInformedNN:
         # Balance lambda
         if alpha:
             output_file = open(self.dest + 'balance.dat', 'a')
-            print(ep, self.balance,
+            print(ep, self.balance.numpy(),
                   file=output_file)
             output_file.close()
 
