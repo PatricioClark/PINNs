@@ -201,6 +201,7 @@ class PhysicsInformedNN:
               lambda_data=1.0,
               lambda_phys=1.0,
               alpha=0.0,
+              full_eqs=True,
               verbose=False,
               print_freq=1,
               save_freq=1,
@@ -242,6 +243,10 @@ class PhysicsInformedNN:
             If non-zero, performs adaptive balance of the physics and data part
             of the loss functions. See comment above for reference. Default is
             zero.
+        full_eqs: bool [optional]
+            If True the physics term of the loss is treated as whole. If False,
+            each equation is noramlized by the means of their gradients.
+            Default is True.
         verbose : bool [optional]
             Verbose output or not. Default is False.
         print_freq : int [optional]
@@ -299,6 +304,7 @@ class PhysicsInformedNN:
                                                    data_mask,
                                                    balance,
                                                    alpha,
+                                                   full_eqs,
                                                    ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
@@ -321,7 +327,7 @@ class PhysicsInformedNN:
     @tf.function
     def training_step(self, X_batch, Y_batch,
                       pde, lambda_data, lambda_phys,
-                      data_mask, balance, alpha, ba):
+                      data_mask, balance, alpha, full_eqs, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(X_batch)
@@ -357,17 +363,22 @@ class PhysicsInformedNN:
                     unconnected_gradients=tf.UnconnectedGradients.ZERO)
 
         # Calculate gradients of physics part
-        full_eqs = True
         if full_eqs:
             gradients_phys = tape.gradient(loss_phys,
                         self.model.trainable_variables,
                         unconnected_gradients=tf.UnconnectedGradients.ZERO)
         else:
-            gradients_phys = [tape.gradient(leq,
+            gradients_eqs  = [tape.gradient(leq,
                         self.model.trainable_variables,
                         unconnected_gradients=tf.UnconnectedGradients.ZERO)
                         for leq in loss_eqs]
-            gradients_phys = [tf.add_n(x) for x in zip(*gradients_phys)]
+            means = [get_mean_grad(gr, self.num_trainable_vars)
+                     for gr in gradients_eqs]
+            maxme = tf.reduce_max(means)
+            bal_eqs = [maxme/mg for mg in means]
+            gradients_eqs  = [[tf.multiply(x,lay) for x,lay in zip(bal_eqs, greq)]
+                    for greq in gradients_eqs]
+            gradients_phys = [tf.add_n(x) for x in zip(*gradients_eqs)]
 
         # Delete tape
         del tape
