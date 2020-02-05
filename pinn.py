@@ -262,17 +262,24 @@ class PhysicsInformedNN:
             all True.
         """
 
+        len_data = X_data.shape[0]
+
         # Check data_mask
         if data_mask is None:
             data_mask = [True for _ in range(self.dout)]
+
+        # Expand lambdas if necessary
+        if not np.shape(lambda_data):
+            lambda_data = [lambda_data for _ in range(len_data)]
+            lambda_phys = [lambda_phys for _ in range(len_data)]
 
         # Cast balance
         balance = tf.constant(self.balance.numpy(), dtype='float32')
 
         # Run epochs
         ep0     = int(self.ckpt.step)
-        batches = X_data.shape[0] // batch_size
-        idxs    = np.arange(X_data.shape[0])
+        batches = len_data // batch_size
+        idxs    = np.arange(len_data)
         for ep in range(ep0, ep0+epochs):
             np.random.shuffle(idxs)
             for ba in range(batches):
@@ -283,12 +290,8 @@ class PhysicsInformedNN:
                 Y_batch = Y_data[idxs[sl_ba]]
                 X_batch = tf.convert_to_tensor(X_batch)
                 Y_batch = tf.convert_to_tensor(Y_batch)
-                try:
-                    l_data = lambda_data[idxs[sl_ba]]
-                    l_phys = lambda_phys[idxs[sl_ba]]
-                except TypeError:
-                    l_data = lambda_data
-                    l_phys = lambda_phys
+                l_data = lambda_data[idxs[sl_ba]]
+                l_phys = lambda_phys[idxs[sl_ba]]
                 l_data = tf.constant(l_data, dtype='float32')
                 l_phys = tf.constant(l_phys, dtype='float32')
                 ba_counter = tf.constant(ba)
