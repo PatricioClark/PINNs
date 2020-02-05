@@ -9,7 +9,7 @@ import tensorflow as tf
 from   tensorflow import keras
 import time
 
-tf.keras.backend.set_floatx('float64')
+tf.keras.backend.set_floatx('float32')
 class PhysicsInformedNN:
     """
     General PINN class
@@ -267,7 +267,7 @@ class PhysicsInformedNN:
             data_mask = [True for _ in range(self.dout)]
 
         # Cast balance
-        balance = tf.constant(self.balance.numpy(), dtype='float64')
+        balance = tf.constant(self.balance.numpy(), dtype='float32')
 
         # Run epochs
         ep0     = int(self.ckpt.step)
@@ -289,8 +289,8 @@ class PhysicsInformedNN:
                 except TypeError:
                     l_data = lambda_data
                     l_phys = lambda_phys
-                l_data = tf.constant(l_data, dtype='float64')
-                l_phys = tf.constant(l_phys, dtype='float64')
+                l_data = tf.constant(l_data, dtype='float32')
+                l_phys = tf.constant(l_phys, dtype='float32')
                 ba_counter = tf.constant(ba)
 
                 if timer: t0 = time.time()

@@ -1,5 +1,5 @@
 import tensorflow as tf
-tf.keras.backend.set_floatx('float64')
+tf.keras.backend.set_floatx('float32')
 import numpy as np
 
 @tf.function
