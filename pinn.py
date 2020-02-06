@@ -202,6 +202,8 @@ class PhysicsInformedNN:
               lambda_phys=1.0,
               alpha=0.0,
               full_eqs=True,
+              flags=None,
+              rnd_order_training=True,
               verbose=False,
               print_freq=1,
               save_freq=1,
@@ -245,8 +247,17 @@ class PhysicsInformedNN:
             zero.
         full_eqs: bool [optional]
             If True the physics term of the loss is treated as whole. If False,
-            each equation is noramlized by the means of their gradients.
+            each equation is normalized by the means of their gradients.
             Default is True.
+        flags: ndarray of ints [optional]
+            If supplied, different flags will be used to group different
+            points, and then each batch will be formed by picking points from
+            each different group, respecting the global ratio of points between
+            groups. Default is all points have the same flag.
+        rnd_order_training: bool [optional]
+            If True points are taking randomly from each group when forming a
+            batch, if False points are taking in order, following the order the
+            data was supplied. Default is True.
         verbose : bool [optional]
             Verbose output or not. Default is False.
         print_freq : int [optional]
@@ -263,6 +274,7 @@ class PhysicsInformedNN:
         """
 
         len_data = X_data.shape[0]
+        batches = len_data // batch_size
 
         # Check data_mask
         if data_mask is None:
@@ -270,28 +282,37 @@ class PhysicsInformedNN:
 
         # Expand lambdas if necessary
         if not np.shape(lambda_data):
-            lambda_data = [lambda_data for _ in range(len_data)]
-            lambda_phys = [lambda_phys for _ in range(len_data)]
+            lambda_data = np.array([lambda_data for _ in range(len_data)])
+            lambda_phys = np.array([lambda_phys for _ in range(len_data)])
+
+        # Expand flags
+        if flags is None:
+            flags = [1 for _ in range(len_data)]
+        flags     = np.array(flags)
+        flag_idxs = [np.where(flags==f)[0] for f in np.unique(flags)]
 
         # Cast balance
         balance = tf.constant(self.balance.numpy(), dtype='float32')
 
         # Run epochs
         ep0     = int(self.ckpt.step)
-        batches = len_data // batch_size
-        idxs    = np.arange(len_data)
         for ep in range(ep0, ep0+epochs):
-            np.random.shuffle(idxs)
             for ba in range(batches):
-                sl_ba = slice(ba*batch_size, (ba+1)*batch_size)
 
                 # Create batches and cast to TF objects
-                X_batch = X_data[idxs[sl_ba]]
-                Y_batch = Y_data[idxs[sl_ba]]
+                (X_batch,
+                 Y_batch,
+                 l_data,
+                 l_phys) = get_mini_batch(X_data,
+                                          Y_data,
+                                          lambda_data,
+                                          lambda_phys,
+                                          ba,
+                                          batches,
+                                          flag_idxs,
+                                          random=rnd_order_training)
                 X_batch = tf.convert_to_tensor(X_batch)
                 Y_batch = tf.convert_to_tensor(Y_batch)
-                l_data = lambda_data[idxs[sl_ba]]
-                l_phys = lambda_phys[idxs[sl_ba]]
                 l_data = tf.constant(l_data, dtype='float32')
                 l_phys = tf.constant(l_phys, dtype='float32')
                 ba_counter = tf.constant(ba)
@@ -522,6 +543,19 @@ def get_max_grad(grads):
     max_of_layers = [tf.reduce_max(tf.abs(gr)) for gr in grads]
     total_max       = tf.reduce_max(max_of_layers)
     return total_max
+
+def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
+    idxs = []
+    for fi in flag_idxs:
+        if random:
+            sl = np.random.choice(fi, len(fi)//batches)
+            idxs.append(sl)
+        else:
+            flag_size = len(fi)//batches
+            sl = slice(ba*flag_size, (ba+1)*flag_size)
+            idxs.append(fi[sl])
+    idxs = np.concatenate(idxs)
+    return X[idxs], Y[idxs], ld[idxs], lf[idxs]
 
 class AdaptiveAct(keras.layers.Layer):
     """ Adaptive activation function """
