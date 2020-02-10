@@ -44,8 +44,8 @@ def some_eqs(model, coords, params):
 numps = 50
 p     = 1.0
 idxs  = np.random.choice([True, False], size=numps, p=[p,p-1])
-x1    = np.linspace(-1,1,num=numps, dtype=np.float64)[idxs]
-x2    = np.linspace(-1,1,num=numps, dtype=np.float64)[idxs]
+x1    = np.linspace(-1,1,num=numps, dtype=np.float32)[idxs]
+x2    = np.linspace(-1,1,num=numps, dtype=np.float32)[idxs]
 xt1, xt2 = np.meshgrid(x1, x2, indexing='ij')
 xt1 = xt1.flatten().reshape(-1,1)
 xt2 = xt2.flatten().reshape(-1,1)
@@ -57,11 +57,11 @@ X = np.concatenate((xt1,xt2), 1)
 Y = np.concatenate((yt1,yt2), 1)
 
 # For plotting
-x1 = np.linspace(-1,1,num=numps, dtype=np.float64)
-x2 = np.linspace(-1,1,num=numps, dtype=np.float64)
+x1 = np.linspace(-1,1,num=numps, dtype=np.float32)
+x2 = np.linspace(-1,1,num=numps, dtype=np.float32)
 x1 = x1.reshape(-1,1)
 x2 = x2.reshape(-1,1)
-zs = np.zeros(numps, dtype=np.float64).reshape(-1,1)
+zs = np.zeros(numps, dtype=np.float32).reshape(-1,1)
 
 # -----------------------------------------------------------------------------
 # Initialize PINN
@@ -79,7 +79,7 @@ print('Learning rate:', PINN.optimizer._decayed_lr(tf.float32))
 # -----------------------------------------------------------------------------
 # Train PINN
 # -----------------------------------------------------------------------------
-alpha = 0.9
+alpha = 0.0
 PINN.train(X, Y, some_eqs, epochs=2,
            lambda_data=np.array([1.0 for _ in range(len(X))]),
            lambda_phys=np.array([1.0 for _ in range(len(X))]),
