@@ -44,6 +44,15 @@ class PhysicsInformedNN:
         be dout.
     dest : str [optional]
         Path for output files.
+    activation : str [optional]
+        Activation function to be used. Default is 'tanh'.
+    optimizer : keras.optimizer instance [optional]
+        Optimizer to be used in the gradient descent. Default is Adam with
+        fixed learning rate equal to 5e-4.
+    normalize : float or array [optional]
+        If a number or an array of size din is supplied, the first layer of the
+        networks normalizes the inputs uniformly between -1 and 1. Default is
+        False.
     eq_params : list [optional]
         List of parameters to be used in pde.
     inverse : list [optional]
@@ -103,9 +112,8 @@ class PhysicsInformedNN:
         if normalize:
             xmin   = normalize[0]
             xmax   = normalize[1]
-            norm   = keras.layers.Lambda(lambda x: 2*(x-xmin)/(xmax-xmin) - 1)
-            normed = norm(coords)
-            hidden = normed
+            norm   = lambda x: 2*(x-xmin)/(xmax-xmin) - 1
+            hidden = keras.layers.Lambda(norm)(coords)
             self.norm = norm
         else:
             hidden  = coords
@@ -183,7 +191,7 @@ class PhysicsInformedNN:
                 inps   = keras.layers.concatenate(
                            [coords[:,ii:ii+1] for ii in self.inverse[pp][0]])
                 if self.normalize:
-                    inps = self.norm(inps)
+                    inps = keras.layers.Lambda(self.norm)(inps)
                 hidden = inps
                 for ii in range(self.inverse[pp][1]):
                     hidden = keras.layers.Dense(self.inverse[pp][2])(hidden)

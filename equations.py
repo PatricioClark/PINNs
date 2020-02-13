@@ -27,6 +27,180 @@ def NS3D(model, coords, params):
     sig_eq2 = params[18]
     sig_eq3 = params[19]
 
+    jt = np.float32(1.0/(0.5*(t_max-t_min)))
+    jx = np.float32(1.0/(0.5*(x_max-x_min)))
+    jy = np.float32(1.0/(0.5*(y_max-y_min)))
+    jz = np.float32(1.0/(0.5*(z_max-z_min)))
+    
+    with tf.GradientTape(persistent=True) as tape2:
+        tape2.watch(coords)
+        with tf.GradientTape(persistent=True) as tape1:
+            tape1.watch(coords)
+            Yp = model(coords)[0]
+            u  = sig_u*Yp[:,0] + U
+            v  = sig_v*Yp[:,1] + V
+            w  = sig_w*Yp[:,2] + W
+            p  = Yp[:,3]
+
+        # First derivatives
+        grad_u = tape1.gradient(u, coords)
+        u_t = jt*grad_u[:,0]
+        u_x = jx*grad_u[:,1]
+        u_y = jy*grad_u[:,2]
+        u_z = jz*grad_u[:,3]
+
+        grad_v = tape1.gradient(v, coords)
+        v_t = jt*grad_v[:,0]
+        v_x = jx*grad_v[:,1]
+        v_y = jy*grad_v[:,2]
+        v_z = jz*grad_v[:,3]
+
+        grad_w = tape1.gradient(w, coords)
+        w_t = jt*grad_w[:,0]
+        w_x = jx*grad_w[:,1]
+        w_y = jy*grad_w[:,2]
+        w_z = jz*grad_w[:,3]
+
+        grad_p = tape1.gradient(p, coords)
+        p_x = jx*grad_p[:,1]
+        p_y = jy*grad_p[:,2]
+        p_z = jz*grad_p[:,3]
+        del tape1
+
+    # Second derivatives
+    u_xx = jx*tape2.gradient(u_x, coords)[:,1]
+    v_xx = jx*tape2.gradient(v_x, coords)[:,1]
+    w_xx = jx*tape2.gradient(w_x, coords)[:,1]
+
+    u_yy = jy*tape2.gradient(u_y, coords)[:,2]
+    v_yy = jy*tape2.gradient(v_y, coords)[:,2]
+    w_yy = jy*tape2.gradient(w_y, coords)[:,2]
+
+    u_zz = jz*tape2.gradient(u_z, coords)[:,3]
+    v_zz = jz*tape2.gradient(v_z, coords)[:,3]
+    w_zz = jz*tape2.gradient(w_z, coords)[:,3]
+    del tape2
+
+    # First derivates that are not differentiated a second time
+
+    # Equations to be enforced
+    f0 = u_x + v_y + w_z
+    f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz))
+    f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz))
+    f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz))
+        
+    return [f0/sig_eq0, f1/sig_eq1, f2/sig_eq2, f3/sig_eq3]
+
+@tf.function
+def NS3DNonNorm(model, coords, params):
+    """ NS 3D equations """
+
+    PX    = params[0]
+    nu    = params[1]
+    U     = params[2]
+    V     = params[3]
+    W     = params[4]
+    sig_u = params[5]
+    sig_v = params[6]
+    sig_w = params[7]
+    t_min = params[8]
+    t_max = params[9]
+    x_min = params[10]
+    x_max = params[11]
+    y_min = params[12]
+    y_max = params[13]
+    z_min = params[14]
+    z_max = params[15]
+    sig_eq0 = params[16]
+    sig_eq1 = params[17]
+    sig_eq2 = params[18]
+    sig_eq3 = params[19]
+
+    with tf.GradientTape(persistent=True) as tape2:
+        tape2.watch(coords)
+        with tf.GradientTape(persistent=True) as tape1:
+            tape1.watch(coords)
+            Yp = model(coords)[0]
+            u  = Yp[:,0]
+            v  = Yp[:,1]
+            w  = Yp[:,2] 
+            p  = Yp[:,3]
+
+        # First derivatives
+        grad_u = tape1.gradient(u, coords)
+        u_x = grad_u[:,1]
+        u_y = grad_u[:,2]
+        u_z = grad_u[:,3]
+
+        grad_v = tape1.gradient(v, coords)
+        v_x = grad_v[:,1]
+        v_y = grad_v[:,2]
+        v_z = grad_v[:,3]
+
+        grad_w = tape1.gradient(w, coords)
+        w_x = grad_w[:,1]
+        w_y = grad_w[:,2]
+        w_z = grad_w[:,3]
+
+        grad_p = tape1.gradient(p, coords)
+        del tape1
+
+    # Second derivatives
+    u_xx = tape2.gradient(u_x, coords)[:,1]
+    v_xx = tape2.gradient(v_x, coords)[:,1]
+    w_xx = tape2.gradient(w_x, coords)[:,1]
+
+    u_yy = tape2.gradient(u_y, coords)[:,2]
+    v_yy = tape2.gradient(v_y, coords)[:,2]
+    w_yy = tape2.gradient(w_y, coords)[:,2]
+
+    u_zz = tape2.gradient(u_z, coords)[:,3]
+    v_zz = tape2.gradient(v_z, coords)[:,3]
+    w_zz = tape2.gradient(w_z, coords)[:,3]
+    del tape2
+
+    # First derivates that are not differentiated a second time
+    u_t = grad_u[:,0]
+    v_t = grad_v[:,0]
+    w_t = grad_w[:,0]
+
+    p_x = grad_p[:,1]
+    p_y = grad_p[:,2]
+    p_z = grad_p[:,3]
+
+    # Equations to be enforced
+    f0 = u_x + v_y + w_z
+    f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz))
+    f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz))
+    f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz))
+        
+    return [f0, f1, f2, f3]
+
+@tf.function
+def NS3DTerms(model, coords, params):
+    """ NS 3D equations """
+
+    PX    = params[0]
+    nu    = params[1]
+    U     = params[2]
+    V     = params[3]
+    W     = params[4]
+    sig_u = params[5]
+    sig_v = params[6]
+    sig_w = params[7]
+    t_min = params[8]
+    t_max = params[9]
+    x_min = params[10]
+    x_max = params[11]
+    y_min = params[12]
+    y_max = params[13]
+    z_min = params[14]
+    z_max = params[15]
+    sig_eq0 = params[16]
+    sig_eq1 = params[17]
+    sig_eq2 = params[18]
+    sig_eq3 = params[19]
+
     jt = 0.5*(t_max-t_min)
     jx = 0.5*(x_max-x_min)
     jy = 0.5*(y_max-y_min)
@@ -85,12 +259,25 @@ def NS3D(model, coords, params):
     p_z = jz*grad_p[:,3]
 
     # Equations to be enforced
-    f0 = u_x + v_y + w_z
-    f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz))
-    f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz))
-    f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz))
+    # f0 = u_x + v_y + w_z
+    # f1 = (u_t + u*u_x + v*u_y + w*u_z + p_x + PX - nu*(u_xx+u_yy+u_zz))
+    # f2 = (v_t + u*v_x + v*v_y + w*v_z + p_y      - nu*(v_xx+v_yy+v_zz))
+    # f3 = (w_t + u*w_x + v*w_y + w*w_z + p_z      - nu*(w_xx+w_yy+w_zz))
         
-    return [f0/sig_eq0, f1/sig_eq1, f2/sig_eq2, f3/sig_eq3]
+    # Output terms
+    return ([u_x, v_y, w_z],
+            [u_t,
+             u*u_x, v*u_y, w*u_z,
+             p_x, PX*tf.ones(p_x.shape, dtype=p_x.dtype),
+            -nu*u_xx, -nu*u_yy, -nu*u_zz],
+            [v_t,
+             u*v_x, v*v_y, v*u_z,
+             p_y, 0*tf.ones(p_y.shape, dtype=p_y.dtype),
+            -nu*v_xx, -nu*v_yy, -nu*v_zz],
+            [w_t,
+             u*w_x, v*w_y, w*w_z,
+             p_z, 0*tf.ones(p_z.shape, dtype=p_z.dtype),
+            -nu*w_xx, -nu*w_yy, -nu*w_zz])
 
 @tf.function
 def LES3DSmag(model, coords, params):
