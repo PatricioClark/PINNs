@@ -188,14 +188,18 @@ class PhysicsInformedNN:
 
             # Hidden parameter is a field
             elif self.inverse[pp]:
-                inps   = keras.layers.concatenate(
+                if len(self.inverse[pp][0])==1:
+                    ii   = self.inverse[pp][0][0]
+                    inps = coords[:,ii:ii+1]
+                else:
+                    inps   = keras.layers.concatenate(
                            [coords[:,ii:ii+1] for ii in self.inverse[pp][0]])
                 if self.normalize:
                     inps = keras.layers.Lambda(self.norm)(inps)
                 hidden = inps
                 for ii in range(self.inverse[pp][1]):
                     hidden = keras.layers.Dense(self.inverse[pp][2])(hidden)
-                    if activation=='adaptive_layer':
+                    if self.activation=='adaptive_layer':
                         self.act_fn = AdaptiveAct()
                     hidden = self.act_fn(hidden)
                 func = keras.layers.Dense(1)(hidden)
