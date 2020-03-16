@@ -73,26 +73,18 @@ PINN = PhysicsInformedNN(layers,
                          optimizer=keras.optimizers.Adam(lr),
                          eq_params=[2,3],
                          inverse=[((1,),2,16), False],
-                         restore=False)
+                         # inverse=['const', False],
+                         restore=True)
 print('Learning rate:', PINN.optimizer._decayed_lr(tf.float32))
 
 # -----------------------------------------------------------------------------
 # Train PINN
 # -----------------------------------------------------------------------------
-alpha = 0.0
-PINN.train(X, Y, some_eqs, epochs=2,
-           lambda_data=np.array([1.0 for _ in range(len(X))]),
-           lambda_phys=np.array([1.0 for _ in range(len(X))]),
-           alpha=alpha,
-           batch_size=32, verbose=False, timer=True)
-print('Learning rate:', PINN.optimizer._decayed_lr(tf.float32))
-
 t0 = time.time()
-tot_eps = 400
+tot_eps = 200
 PINN.train(X, Y, some_eqs, epochs=tot_eps,
            lambda_data=np.array([1.0 for _ in range(len(X))]),
            lambda_phys=np.array([1.0 for _ in range(len(X))]),
-           alpha=alpha,
            batch_size=32, verbose=False, timer=False)
 print('Time per epoch:', (time.time()-t0)/tot_eps)
 
