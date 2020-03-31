@@ -218,6 +218,7 @@ class PhysicsInformedNN:
               rnd_order_training=True,
               verbose=False,
               print_freq=1,
+              valid_freq=0,
               save_freq=1,
               timer=False,
               data_mask=None):
@@ -274,6 +275,9 @@ class PhysicsInformedNN:
             Verbose output or not. Default is False.
         print_freq : int [optional]
             Print status frequency. Default is 1.
+        valid_freq : int [optional]
+            Validation check frequency. If zero, no validation is performed.
+            Default is 0.
         save_freq : int [optional]
             Save model frequency. Default is 1.
         timer : bool [optional]
@@ -354,6 +358,11 @@ class PhysicsInformedNN:
                                   inv_outputs,
                                   alpha,
                                   verbose=verbose)
+
+            # Perform validation check
+            if valid_freq and ep%valid_freq==0:
+                self.validation(ep)
+
             # Save progress
             self.ckpt.step.assign_add(1)
             self.ckpt.balance.assign(balance.numpy())
@@ -571,16 +580,17 @@ def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
 
 class AdaptiveAct(keras.layers.Layer):
     """ Adaptive activation function """
-    def __init__(self, activation=keras.activations.tanh, **kwargs):
+    def __init__(self, activation=keras.activations.tanh, eta=10.0, **kwargs):
         super().__init__(**kwargs)
         self.activation = activation
+        self.eta = tf.constant(eta, dtype='float32')
 
     def build(self, batch_input_shape):
         self.a = self.add_weight(name='activation', shape=[1])
         super().build(batch_input_shape)
 
     def call(self, X):
-        return self.activation(self.a * X)
+        return self.activation(self.eta * self.a * X)
 
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
