@@ -580,17 +580,17 @@ def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
 
 class AdaptiveAct(keras.layers.Layer):
     """ Adaptive activation function """
-    def __init__(self, activation=keras.activations.tanh, eta=10.0, **kwargs):
+    def __init__(self, activation=keras.activations.tanh, **kwargs):
         super().__init__(**kwargs)
         self.activation = activation
-        self.eta = tf.constant(eta, dtype='float32')
 
     def build(self, batch_input_shape):
         self.a = self.add_weight(name='activation', shape=[1])
         super().build(batch_input_shape)
 
     def call(self, X):
-        return self.activation(self.eta * self.a * X)
+        aux = tf.multiply(10.0,  self.a)
+        return self.activation(tf.multiply(aux, X))
 
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
