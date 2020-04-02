@@ -26,7 +26,7 @@ class PhysicsInformedNN:
     of the entries contains the different learned parameters when running an
     inverse PINN or a dummy output that should be disregarded when not.
 
-    Training can be done usuing the adaptive balance described in
+    Training can be done usuing the dynamic balance described in
     "Understanding and mitigating gradient pathologies in physics-informed
     neural networks" by Wang, Teng & Perdikaris (2020).
 
@@ -142,7 +142,7 @@ class PhysicsInformedNN:
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
 
-        # Parameter for balance/adaptive lambda
+        # Parameter for dyncamic balance
         # Can be modified from the outside before calling PINN.train
         self.balance = tf.Variable(1.0, name='balance')
 
@@ -428,14 +428,15 @@ class PhysicsInformedNN:
         # Delete tape
         del tape
 
-        # If doing adaptive balance, calculate balance
+        # If doing dynamic balance, calculate balance
         if alpha>0.0 and ba%10==0:
             mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
-            max_grad_phys  = get_max_grad(gradients_phys)
-            if max_grad_phys>0:
-                lhat = max_grad_phys/mean_grad_data
-            else:
-                lhat = balance
+            mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
+            lhat = mean_grad_phys/mean_grad_data
+            # if max_grad_phys>0:
+            #     lhat = max_grad_phys/mean_grad_data
+            # else:
+            #     lhat = balance
             balance = (1.0-alpha)*balance + alpha*lhat
 
         # Apply gradients
@@ -555,6 +556,7 @@ class PhysicsInformedNN:
 
 @tf.function
 def get_mean_grad(grads, n):
+    ''' Get the mean of the absolute values of the gradient '''
     sum_over_layers = [tf.reduce_sum(tf.abs(gr)) for gr in grads]
     total_sum       = tf.add_n(sum_over_layers)
     return total_sum/n
