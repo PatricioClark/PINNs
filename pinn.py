@@ -74,6 +74,7 @@ class PhysicsInformedNN:
                  layers,
                  dest='./',
                  activation='tanh',
+                 p_drop=0.0,
                  optimizer=keras.optimizers.Adam(lr=5e-4),
                  normalize=False,
                  eq_params=[],
@@ -91,6 +92,7 @@ class PhysicsInformedNN:
         self.dest        = dest
         self.eq_params   = eq_params
         self.eval_params = copy.copy(eq_params)
+        self.p_drop      = p_drop
         self.inverse     = inverse
         self.restore     = restore
         self.normalize   = normalize
@@ -124,6 +126,8 @@ class PhysicsInformedNN:
             if activation=='adaptive_layer':
                 self.act_fn = AdaptiveAct()
             hidden = self.act_fn(hidden)
+            if p_drop:
+                hidden = keras.layers.Dropout(p_drop)(hidden)
 
         # Output definition
         fields = keras.layers.Dense(self.dout, name='fields')(hidden)
@@ -202,6 +206,8 @@ class PhysicsInformedNN:
                     if self.activation=='adaptive_layer':
                         self.act_fn = AdaptiveAct()
                     hidden = self.act_fn(hidden)
+                    if self.p_drop:
+                        hidden = keras.layers.Dropout(self.p_drop)(hidden)
                 func = keras.layers.Dense(1)(hidden)
                 inv_outputs.append(func)
         return inv_outputs
@@ -375,7 +381,7 @@ class PhysicsInformedNN:
                       data_mask, balance, alpha, full_eqs, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
-            output = self.model(X_batch)
+            output = self.model(X_batch, training=True)
             Y_pred = output[0]
             p_pred = output[1:]
             aux = [tf.reduce_mean(
