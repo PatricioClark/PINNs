@@ -786,7 +786,7 @@ def LES3DSmagWallDamping(model, coords, params):
         tape2.watch(coords)
         with tf.GradientTape(persistent=True) as tape1:
             tape1.watch(coords)
-            Yp = model(coords)[0]
+            Yp = model(coords, training=True)[0]
             u  = sig_u*Yp[:,0] + U
             v  = sig_v*Yp[:,1] + V
             w  = sig_w*Yp[:,2] + W
@@ -824,9 +824,9 @@ def LES3DSmagWallDamping(model, coords, params):
         S33 = w_z
 
         coef = c_s*delta
-        eddy_viscosity = coef**2*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
-                                                     S22**2+2*S23**2+
-                                                              S33**2))
+        eddy_viscosity = coef*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
+                                                  S22**2+2*S23**2+
+                                                           S33**2))
         tau11 = -2.0*eddy_viscosity*S11
         tau12 = -2.0*eddy_viscosity*S12
         tau13 = -2.0*eddy_viscosity*S13
@@ -940,9 +940,9 @@ def LES3DSmagWallDampingTerms(model, coords, params):
         S33 = w_z
 
         coef = c_s*delta
-        eddy_viscosity = coef**2*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
-                                                     S22**2+2*S23**2+
-                                                              S33**2))
+        eddy_viscosity = coef*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
+                                                  S22**2+2*S23**2+
+                                                           S33**2))
         tau11 = -2.0*eddy_viscosity*S11
         tau12 = -2.0*eddy_viscosity*S12
         tau13 = -2.0*eddy_viscosity*S13
