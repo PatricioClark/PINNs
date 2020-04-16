@@ -219,6 +219,7 @@ class PhysicsInformedNN:
               lambda_data=1.0,
               lambda_phys=1.0,
               alpha=0.0,
+              bal_kick=0.0,
               full_eqs=True,
               flags=None,
               rnd_order_training=True,
@@ -264,6 +265,8 @@ class PhysicsInformedNN:
             If non-zero, performs adaptive balance of the physics and data part
             of the loss functions. See comment above for reference. Default is
             zero.
+        bal_kick : float [optional]
+            If threshold is crossed, kick balance.
         full_eqs: bool [optional]
             If True the physics term of the loss is treated as whole. If False,
             each equation is normalized by the means of their gradients.
@@ -350,6 +353,7 @@ class PhysicsInformedNN:
                                                    data_mask,
                                                    balance,
                                                    alpha,
+                                                   bal_kick,
                                                    full_eqs,
                                                    ba_counter)
                 if timer:
@@ -378,7 +382,7 @@ class PhysicsInformedNN:
     @tf.function
     def training_step(self, X_batch, Y_batch,
                       pde, lambda_data, lambda_phys,
-                      data_mask, balance, alpha, full_eqs, ba):
+                      data_mask, balance, alpha, bal_kick, full_eqs, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(X_batch, training=True)
@@ -439,11 +443,10 @@ class PhysicsInformedNN:
             mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
             mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
             lhat = mean_grad_phys/mean_grad_data
-            # if max_grad_phys>0:
-            #     lhat = max_grad_phys/mean_grad_data
-            # else:
-            #     lhat = balance
             balance = (1.0-alpha)*balance + alpha*lhat
+            if bal_kick and balance>bal_kick:
+                print(balance, bal_kick)
+                balance /= 10.0
 
         # Apply gradients
         gradients = [x + balance*y for x,y in zip(gradients_phys, gradients_data)]
