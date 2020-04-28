@@ -761,21 +761,18 @@ def LES3DSmagWallDamping(model, coords, params):
     """ LES 3D equations with Smagorinsky model and Mason wall damping 
         These equations re-normalize the inputs and outputs used from the NN """
 
-    PX    = params[0]
-    nu    = params[1]
-    delta = params[2]
-    dc    = params[3]
-    U     = params[4]
-    V     = params[5]
-    W     = params[6]
-    sig_u = params[7]
-    sig_v = params[8]
-    sig_w = params[9]
-
-    if len(params)>=11:
-        D = 1.0 - tf.exp(-coords[:,2]/params[10])
-    else:
-        D = 1.0
+    PX     = params[0]
+    nu     = params[1]
+    delta2 = params[2]
+    cs     = params[3]
+    U      = params[4]
+    V      = params[5]
+    W      = params[6]
+    sig_u  = params[7]
+    sig_v  = params[8]
+    sig_w  = params[9]
+    C      = params[10]
+    sig_c  = params[11]
 
     with tf.GradientTape(persistent=True) as tape2:
         tape2.watch(coords)
@@ -818,7 +815,7 @@ def LES3DSmagWallDamping(model, coords, params):
         S23 = 0.5*(v_z+w_y)
         S33 = w_z
 
-        coef = (0.1*delta*D + dc)**2
+        coef = (sig_c*cs + C)*delta2
         eddy_viscosity = coef*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
                                                   S22**2+2*S23**2+
                                                            S33**2))
@@ -872,16 +869,18 @@ def LES3DSmagWallDampingTerms(model, coords, params):
     """ LES 3D equations with Smagorinsky model and Mason wall damping 
         These equations re-normalize the inputs and outputs used from the NN """
 
-    PX    = params[0]
-    nu    = params[1]
-    delta = params[2]
-    dc    = params[3]
-    U     = params[4]
-    V     = params[5]
-    W     = params[6]
-    sig_u = params[7]
-    sig_v = params[8]
-    sig_w = params[9]
+    PX     = params[0]
+    nu     = params[1]
+    delta2 = params[2]
+    cs     = params[3]
+    U      = params[4]
+    V      = params[5]
+    W      = params[6]
+    sig_u  = params[7]
+    sig_v  = params[8]
+    sig_w  = params[9]
+    C      = params[10]
+    sig_c  = params[11]
 
     if len(params)>=11:
         D = 1.0 - tf.exp(-coords[:,2]/params[10])
@@ -929,7 +928,7 @@ def LES3DSmagWallDampingTerms(model, coords, params):
         S23 = 0.5*(v_z+w_y)
         S33 = w_z
 
-        coef = (0.1*delta*D + dc)**2
+        coef = (sig_c*cs + C)*delta2
         eddy_viscosity = coef*tf.sqrt(2*(S11**2+2*S12**2+2*S13**2+
                                                   S22**2+2*S23**2+
                                                            S33**2))
