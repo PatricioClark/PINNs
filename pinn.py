@@ -49,9 +49,13 @@ class PhysicsInformedNN:
     optimizer : keras.optimizer instance [optional]
         Optimizer to be used in the gradient descent. Default is Adam with
         fixed learning rate equal to 5e-4.
-    normalize : float or array [optional]
+    norm_in : float or array [optional]
         If a number or an array of size din is supplied, the first layer of the
-        networks normalizes the inputs uniformly between -1 and 1. Default is
+        network normalizes the inputs uniformly between -1 and 1. Default is
+        False.
+    norm_out : float or array [optional]
+        If a number or an array of size dout is supplied, the layer layer of the
+        network normalizes the outputs using z-score. Default is
         False.
     eq_params : list [optional]
         List of parameters to be used in pde.
@@ -76,7 +80,8 @@ class PhysicsInformedNN:
                  activation='tanh',
                  p_drop=0.0,
                  optimizer=keras.optimizers.Adam(lr=5e-4),
-                 normalize=False,
+                 norm_in=False,
+                 norm_out=False,
                  eq_params=[],
                  inverse=False,
                  restore=True):
@@ -95,7 +100,8 @@ class PhysicsInformedNN:
         self.p_drop      = p_drop
         self.inverse     = inverse
         self.restore     = restore
-        self.normalize   = normalize
+        self.norm_in     = norm_in
+        self.norm_out    = norm_out
         self.optimizer   = optimizer
         self.activation  = activation
 
@@ -110,10 +116,10 @@ class PhysicsInformedNN:
         # Input definition
         coords = keras.layers.Input(self.din, name='coords')
 
-        # Normalzation
-        if normalize:
-            xmin   = normalize[0]
-            xmax   = normalize[1]
+        # Normalize input
+        if norm_in:
+            xmin   = norm_in[0]
+            xmax   = norm_in[1]
             norm   = lambda x: 2*(x-xmin)/(xmax-xmin) - 1
             hidden = keras.layers.Lambda(norm)(coords)
             self.norm = norm
@@ -131,6 +137,13 @@ class PhysicsInformedNN:
 
         # Output definition
         fields = keras.layers.Dense(self.dout, name='fields')(hidden)
+
+        # Normalize output
+        if norm_out:
+            mm = norm_out[0]
+            sg = norm_out[1]
+            zscore = lambda x: sg*x + mm 
+            fields = keras.layers.Lambda(zscore)(fields)
 
         # Check if inverse problem
         if inverse:
@@ -198,7 +211,7 @@ class PhysicsInformedNN:
                 else:
                     inps   = keras.layers.concatenate(
                            [coords[:,ii:ii+1] for ii in self.inverse[pp][0]])
-                if self.normalize:
+                if self.norm_in:
                     inps = keras.layers.Lambda(self.norm)(inps)
                 hidden = inps
                 for ii in range(self.inverse[pp][1]):
