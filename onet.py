@@ -1,0 +1,258 @@
+# Deep ONet general class
+
+# Requires Python 3.* and Tensorflow 2.0
+
+import os
+import copy
+import numpy as np
+import tensorflow as tf
+from   tensorflow import keras
+import time
+
+tf.keras.backend.set_floatx('float64')
+
+class DeepONet:
+    """
+    General Deep Onet class
+
+    Parameters
+    ----------
+
+    m : int
+        Number of sensors (or the branch network's input dimenion)
+    dim_y : int
+        Dimension of y (trunk network's input)
+    depth_branch : int
+        depth of branch network
+    depth_trunk : int
+        depth of branch network
+    p : int
+        Width of branch and trunk networks
+    dest : str [optional]
+        Path for output files.
+    activation : str [optional]
+        Activation function to be used. Default is 'relu'.
+    optimizer : keras.optimizer instance [optional]
+        Optimizer to be used in the gradient descent. Default is Adam with
+        fixed learning rate equal to 1e-3.
+    norm_in : float or array [optional]
+        If a number or an array of size din is supplied, the first layer of the
+        network normalizes the inputs uniformly between -1 and 1. Default is
+        False.
+    norm_out : float or array [optional]
+        If a number or an array of size dout is supplied, the layer layer of the
+        network normalizes the outputs using z-score. Default is
+        False.
+    restore : bool [optional]
+        If True, it checks if a checkpoint exists in dest. If a checkpoint
+        exists it restores the modelfrom there. Default is True.
+    """
+    # Initialize the class
+    def __init__(self,
+                 m,
+                 dim_y,
+                 depth_branch,
+                 depth_trunk,
+                 p,
+                 dest='./',
+                 activation='relu',
+                 optimizer=keras.optimizers.Adam(lr=1e-3),
+                 norm_in=False,
+                 norm_out=False,
+                 restore=True):
+
+        # Numbers and dimensions
+        self.din_b        = m
+        self.din_t        = dim_y
+        self.depth_branch = depth_branch
+        self.depth_trunk  = depth_trunk
+        self.width        = p
+        self.dout         = 1
+
+        # Extras
+        self.dest        = dest
+        self.norm_in     = norm_in
+        self.norm_out    = norm_out
+        self.optimizer   = optimizer
+        self.activation  = activation
+
+        # Activation function
+        if activation=='tanh':
+            self.act_fn = keras.activations.tanh
+        elif activation=='relu':
+            self.act_fn = keras.activations.relu
+
+        # Inputs definition
+        funct = keras.layers.Input(self.din_b, name='funct')
+        point = keras.layers.Input(self.din_t, name='point')
+
+        # Branch network
+        hid_b = funct
+        for ii in range(self.depth_branch-1):
+            hid_b = keras.layers.Dense(self.width, activation=self.act_fn)(hid_b)
+        hid_b = keras.layers.Dense(self.width)(hid_b)
+
+        # Trunk network
+        hid_t = point
+        for ii in range(self.depth_trunk):
+            hid_t = keras.layers.Dense(self.width, activation=self.act_fn)(hid_t)
+
+        # Output definition
+        output = keras.layers.Dot(axes=1)([hid_b, hid_t])
+        output = BiasLayer()(output)
+
+        self.loss_fn = MSE_loss
+
+        # Create model
+        model = keras.Model(inputs=[funct, point], outputs=output)
+        self.model = model
+        self.num_trainable_vars = np.sum([np.prod(v.shape)
+                                          for v in self.model.trainable_variables])
+
+        # Create save checkpoints / Load if existing previous
+        self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
+                                           model=self.model,
+                                           optimizer=self.optimizer)
+        self.manager = tf.train.CheckpointManager(self.ckpt, self.dest, max_to_keep=5)
+        if restore:
+            self.ckpt.restore(self.manager.latest_checkpoint)
+
+    def train(self,
+              Xf, Xp, Y,
+              epochs, batch_size,
+              # loss_fn,#=tf.losses.mean_squared_error,
+              loss_fn='mse',
+              verbose=False,
+              print_freq=1,
+              valid_freq=0,
+              Xf_test=None, Xp_test=None, Y_test=None,
+              save_freq=1,
+              timer=False):
+        """
+        Train function
+
+        Loss functions are written to output.dat
+
+        Parameters
+        ----------
+
+        Xf : ndarray
+            Input for branch network. Must have shape (:, m).
+        Xp : ndarray
+            Input for trunk network. Must have shape (:, dim_y).
+        Y : ndarray
+            Data used for training, G(u)(y)
+            Must have shape (:, dout).
+        epochs : int
+            Number of epochs to train.
+        batch_size : int
+            Size of batches.
+        loss_fn : str [optional]
+            Loss function to be used for training and validation.
+        verbose : bool [optional]
+            Verbose output or not. Default is False.
+        print_freq : int [optional]
+            Print status frequency. Default is 1.
+        valid_freq : int [optional]
+            Validation check frequency. If zero, no validation is performed.
+            Default is 0.
+        Xf_test : ndarray
+            Input for branch network used for testing. Must have shape (:, m).
+        Xp_test : ndarray
+            Input for trunk network used for testing. Must have shape (:, dim_y).
+        Y_test : ndarray
+            Data used for testing, G(u)(y)
+            Must have shape (:, dout).
+        save_freq : int [optional]
+            Save model frequency. Default is 1.
+        timer : bool [optional]
+            If True, print time per batch for the first 10 batches. Default is
+            False.
+        """
+
+        len_data = Y.shape[0]
+        batches = len_data // batch_size
+        idx_arr = np.arange(len_data)
+
+        # Define loss function
+        if loss_fn=='mse':
+            loss_fn = MSE_loss
+
+        # Run epochs
+        ep0 = int(self.ckpt.step)
+        for ep in range(ep0, ep0+epochs):
+            for ba in range(batches):
+
+                # Create batches and cast to TF objects
+                Xf_batch, Xp_batch, Y_batch = get_mini_batch(Xf, Xp, Y,
+                                                             idx_arr, batch_size)
+                Xf_batch = tf.convert_to_tensor(Xf_batch)
+                Xp_batch = tf.convert_to_tensor(Xp_batch)
+                Y_batch  = tf.convert_to_tensor(Y_batch)
+
+                if timer: t0 = time.time()
+                loss = self.training_step(Xf_batch, Xp_batch, Y_batch, loss_fn)
+                if timer:
+                    print("Time per batch:", time.time()-t0)
+                    if ba>10 or ep>5: timer = False
+
+            # Print status
+            if ep%print_freq==0:
+                self.print_status(ep, loss, verbose=verbose)
+
+            # Perform validation check
+            if valid_freq and ep%valid_freq==0:
+                Y_pred = self.model((Xf_test, Xp_test))
+                valid  = loss_fn(Y_test, Y_pred)
+                self.print_status(ep, valid, fname='valid')
+
+            # Save progress
+            self.ckpt.step.assign_add(1)
+            if ep%save_freq==0:
+                self.manager.save()
+
+    @tf.function
+    def training_step(self, Xf_batch, Xp_batch, Y_batch, loss_fn):
+        with tf.GradientTape() as tape:
+            Y_pred = self.model((Xf_batch, Xp_batch), training=True)
+            loss   = loss_fn(Y_batch, Y_pred)
+
+        # Calculate gradients
+        gradients = tape.gradient(loss, self.model.trainable_variables)
+
+        # Apply gradients
+        self.optimizer.apply_gradients(zip(gradients,
+                       self.model.trainable_variables))
+
+        return loss
+
+    def print_status(self, ep, loss, verbose=False, fname='loss'):
+        """ Print status function """
+
+        # Loss functions
+        output_file = open(self.dest + f'{fname}.dat', 'a')
+        print(ep, f'{loss}', 
+              file=output_file)
+        output_file.close()
+        if verbose:
+            print(ep, f'{loss}')
+
+def get_mini_batch(X1, X2, Y, idx_arr, batch_size):
+    idxs = np.random.choice(idx_arr, batch_size)
+    return X1[idxs], X2[idxs], Y[idxs]
+
+class BiasLayer(keras.layers.Layer):
+    def __init__(self, *args, **kwargs):
+        super(BiasLayer, self).__init__(*args, **kwargs)
+
+    def build(self, input_shape):
+        self.bias = self.add_weight('bias',
+                                    shape=input_shape[1:],
+                                    initializer='zeros',
+                                    trainable=True)
+    def call(self, x):
+        return x + self.bias
+
+@tf.function
+def MSE_loss(y_true, y_pred):
+    return tf.reduce_mean(tf.math.square(y_true - y_pred))
