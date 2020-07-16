@@ -70,14 +70,13 @@ bsize        = 10000
 Xf_train, Xp_train, Y_train, Xf_test, Xp_test, Y_test = get_data(ell, m, num_testing)
 
 # Initialize
-donet = DeepONet(m=m, dim_y=1, depth_branch=2, depth_trunk=2, p=40)
+donet = DeepONet(dim_f=1, m=m, dim_y=1, depth_branch=2, depth_trunk=2, p=40)
 
 # Train
 donet.train(Xf_train, Xp_train, Y_train,
         epochs=epochs, batch_size=bsize,
         verbose=True,
         timer=True,
-        # loss_fn=mean_squared_error,
         print_freq=1000,
         save_freq=1000,
         valid_freq=1000,

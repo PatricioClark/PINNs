@@ -18,8 +18,12 @@ class DeepONet:
     Parameters
     ----------
 
+    dim_f : int [optional]
+        Dimensions of input function function (first dimension of branch
+        network's input). If value is 1 dimension can be omitted in
+        datashape in that case.
     m : int
-        Number of sensors (or the branch network's input dimenion)
+        Number of sensors (second dimension of branch network's input)
     dim_y : int
         Dimension of y (trunk network's input)
     depth_branch : int
@@ -50,6 +54,7 @@ class DeepONet:
     # Initialize the class
     def __init__(self,
                  m,
+                 dim_f,
                  dim_y,
                  depth_branch,
                  depth_trunk,
@@ -62,12 +67,12 @@ class DeepONet:
                  restore=True):
 
         # Numbers and dimensions
-        self.din_b        = m
-        self.din_t        = dim_y
+        self.dim_f        = dim_f
+        self.m            = m
+        self.dim_y        = dim_y
         self.depth_branch = depth_branch
         self.depth_trunk  = depth_trunk
         self.width        = p
-        self.dout         = 1
 
         # Extras
         self.dest        = dest
@@ -83,25 +88,41 @@ class DeepONet:
             self.act_fn = keras.activations.relu
 
         # Inputs definition
-        funct = keras.layers.Input(self.din_b, name='funct')
-        point = keras.layers.Input(self.din_t, name='point')
+        funct = keras.layers.Input((dim_f, m), name='funct')
+        point = keras.layers.Input(dim_y,      name='point')
+
+        # Normalize input
+        if norm_in:
+            fmin   = norm_in[0][0]
+            fmax   = norm_in[0][1]
+            pmin   = norm_in[1][0]
+            pmax   = norm_in[1][1]
+            norm_f   = lambda x: 2*(x-fmin)/(fmax-fmin) - 1
+            norm_p   = lambda x: 2*(x-pmin)/(pmax-pmin) - 1
+            hid_b = keras.layers.Lambda(norm_f)(funct)
+            hid_t = keras.layers.Lambda(norm_p)(point)
+        else:
+            hid_b = funct
+            hid_t = point
 
         # Branch network
-        hid_b = funct
         for ii in range(self.depth_branch-1):
             hid_b = keras.layers.Dense(self.width, activation=self.act_fn)(hid_b)
         hid_b = keras.layers.Dense(self.width)(hid_b)
 
         # Trunk network
-        hid_t = point
         for ii in range(self.depth_trunk):
             hid_t = keras.layers.Dense(self.width, activation=self.act_fn)(hid_t)
 
         # Output definition
-        output = keras.layers.Dot(axes=1)([hid_b, hid_t])
-        output = BiasLayer()(output)
+        output = keras.layers.Dot(axes=-1)([hid_b, hid_t])
+        # output = BiasLayer()(output)
 
-        self.loss_fn = MSE_loss
+        if norm_out:
+            mm = norm_out[0]
+            sg = norm_out[1]
+            zscore = lambda x: sg*x + mm 
+            output = keras.layers.Lambda(zscore)(output)
 
         # Create model
         model = keras.Model(inputs=[funct, point], outputs=output)
@@ -113,14 +134,15 @@ class DeepONet:
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
                                            optimizer=self.optimizer)
-        self.manager = tf.train.CheckpointManager(self.ckpt, self.dest, max_to_keep=5)
+        self.manager = tf.train.CheckpointManager(self.ckpt,
+                                                  self.dest + '/ckpt',
+                                                  max_to_keep=5)
         if restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
     def train(self,
               Xf, Xp, Y,
               epochs, batch_size,
-              # loss_fn,#=tf.losses.mean_squared_error,
               loss_fn='mse',
               verbose=False,
               print_freq=1,
@@ -137,12 +159,12 @@ class DeepONet:
         ----------
 
         Xf : ndarray
-            Input for branch network. Must have shape (:, m).
+            Input for branch network. Must have shape (:, dim_f, m).
         Xp : ndarray
             Input for trunk network. Must have shape (:, dim_y).
         Y : ndarray
             Data used for training, G(u)(y)
-            Must have shape (:, dout).
+            Must have shape (:, dim_f).
         epochs : int
             Number of epochs to train.
         batch_size : int
@@ -157,12 +179,12 @@ class DeepONet:
             Validation check frequency. If zero, no validation is performed.
             Default is 0.
         Xf_test : ndarray
-            Input for branch network used for testing. Must have shape (:, m).
+            Input for branch network used for testing. Must have shape (:, dim_f, m).
         Xp_test : ndarray
             Input for trunk network used for testing. Must have shape (:, dim_y).
         Y_test : ndarray
             Data used for testing, G(u)(y)
-            Must have shape (:, dout).
+            Must have shape (:, dim_f).
         save_freq : int [optional]
             Save model frequency. Default is 1.
         timer : bool [optional]
