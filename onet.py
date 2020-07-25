@@ -116,7 +116,7 @@ class DeepONet:
 
         # Output definition
         output = keras.layers.Dot(axes=-1)([hid_b, hid_t])
-        # output = BiasLayer()(output)
+        output = BiasLayer()(output)
 
         if norm_out:
             mm = norm_out[0]
@@ -204,24 +204,14 @@ class DeepONet:
         # Run epochs
         ep0 = int(self.ckpt.step)
         for ep in range(ep0, ep0+epochs):
-            for ba in range(batches):
-
-                # Create batches and cast to TF objects
-                Xf_batch, Xp_batch, Y_batch = get_mini_batch(Xf, Xp, Y,
-                                                             idx_arr, batch_size)
-                Xf_batch = tf.convert_to_tensor(Xf_batch)
-                Xp_batch = tf.convert_to_tensor(Xp_batch)
-                Y_batch  = tf.convert_to_tensor(Y_batch)
-
-                if timer: t0 = time.time()
-                loss = self.training_step(Xf_batch, Xp_batch, Y_batch, loss_fn)
-                if timer:
-                    print("Time per batch:", time.time()-t0)
-                    if ba>10 or ep>5: timer = False
-
             # Print status
             if ep%print_freq==0:
-                self.print_status(ep, loss, verbose=verbose)
+                try:
+                    self.print_status(ep, loss, verbose=verbose)
+                except:
+                    Y_pred = self.model((Xf_test, Xp_test))
+                    loss   = loss_fn(Y_test, Y_pred)
+                    self.print_status(ep, loss, verbose=verbose)
 
             # Perform validation check
             if valid_freq and ep%valid_freq==0:
@@ -236,6 +226,22 @@ class DeepONet:
             self.ckpt.step.assign_add(1)
             if ep%save_freq==0:
                 self.manager.save()
+            
+            # Loop through batches
+            for ba in range(batches):
+
+                # Create batches and cast to TF objects
+                Xf_batch, Xp_batch, Y_batch = get_mini_batch(Xf, Xp, Y,
+                                                             idx_arr, batch_size)
+                Xf_batch = tf.convert_to_tensor(Xf_batch)
+                Xp_batch = tf.convert_to_tensor(Xp_batch)
+                Y_batch  = tf.convert_to_tensor(Y_batch)
+
+                if timer: t0 = time.time()
+                loss = self.training_step(Xf_batch, Xp_batch, Y_batch, loss_fn)
+                if timer:
+                    print("Time per batch:", time.time()-t0)
+                    if ba>10 or ep>5: timer = False
 
     @tf.function
     def training_step(self, Xf_batch, Xp_batch, Y_batch, loss_fn):
