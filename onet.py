@@ -147,6 +147,7 @@ class DeepONet:
               verbose=False,
               print_freq=1,
               valid_freq=0,
+              valid_func=False,
               Xf_test=None, Xp_test=None, Y_test=None,
               save_freq=1,
               timer=False):
@@ -227,6 +228,9 @@ class DeepONet:
                 Y_pred = self.model((Xf_test, Xp_test))
                 valid  = loss_fn(Y_test, Y_pred)
                 self.print_status(ep, valid, fname='valid')
+
+                if valid_func:
+                    self.validation(ep)
 
             # Save progress
             self.ckpt.step.assign_add(1)
