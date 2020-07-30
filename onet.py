@@ -60,6 +60,8 @@ class DeepONet:
                  depth_trunk,
                  p,
                  dest='./',
+                 regularizer=None,
+                 p_drop=0.0,
                  activation='relu',
                  optimizer=keras.optimizers.Adam(lr=1e-3),
                  norm_in=False,
@@ -76,6 +78,7 @@ class DeepONet:
 
         # Extras
         self.dest        = dest
+        self.regu        = regularizer
         self.norm_in     = norm_in
         self.norm_out    = norm_out
         self.optimizer   = optimizer
@@ -107,12 +110,21 @@ class DeepONet:
 
         # Branch network
         for ii in range(self.depth_branch-1):
-            hid_b = keras.layers.Dense(self.width, activation=self.act_fn)(hid_b)
-        hid_b = keras.layers.Dense(self.width)(hid_b)
+            hid_b = keras.layers.Dense(self.width,
+                                       kernel_regularizer=self.regu,
+                                       activation=self.act_fn)(hid_b)
+            if p_drop:
+                hid_b = keras.layers.Dropout(p_drop)(hid_b)
+        hid_b = keras.layers.Dense(self.width,
+                                   kernel_regularizer=self.regu)(hid_b)
 
         # Trunk network
         for ii in range(self.depth_trunk):
-            hid_t = keras.layers.Dense(self.width, activation=self.act_fn)(hid_t)
+            hid_t = keras.layers.Dense(self.width,
+                                       kernel_regularizer=self.regu,
+                                       activation=self.act_fn)(hid_t)
+            if p_drop and ii<self.depth_trunk-1:
+                hid_t = keras.layers.Dropout(p_drop)(hid_t)
 
         # Output definition
         output = keras.layers.Dot(axes=-1)([hid_b, hid_t])
