@@ -89,6 +89,8 @@ class DeepONet:
             self.act_fn = keras.activations.tanh
         elif activation=='relu':
             self.act_fn = keras.activations.relu
+        elif activation == 'adaptive_global':
+            self.act_fn = AdaptiveAct()
 
         # Inputs definition
         funct = keras.layers.Input((dim_f, m), name='funct')
@@ -110,6 +112,8 @@ class DeepONet:
 
         # Branch network
         for ii in range(self.depth_branch-1):
+            if activation=='adaptive_layer':
+                self.act_fn = AdaptiveAct()
             hid_b = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
                                        activation=self.act_fn)(hid_b)
@@ -120,6 +124,8 @@ class DeepONet:
 
         # Trunk network
         for ii in range(self.depth_trunk):
+            if activation=='adaptive_layer':
+                self.act_fn = AdaptiveAct()
             hid_t = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
                                        activation=self.act_fn)(hid_t)
@@ -219,17 +225,22 @@ class DeepONet:
             # Print status
             if ep%print_freq==0:
                 try:
-                    self.print_status(ep, loss, verbose=verbose)
+                    self.print_status(ep, [loss], verbose=verbose)
                 except:
                     Y_pred = self.model((Xf_test, Xp_test))
                     loss   = loss_fn(Y_test, Y_pred)
-                    self.print_status(ep, loss, verbose=verbose)
+                    self.print_status(ep, [loss], verbose=verbose)
+
+                # Print adaptive weights evol
+                if self.activation=='adaptive_layer':
+                    adps = [v.numpy()[0] for v in self.model.trainable_variables if 'adaptive' in v.name]
+                    self.print_status(ep, adps, fname='adpt')
 
             # Perform validation check
             if valid_freq and ep%valid_freq==0:
                 Y_pred = self.model((Xf_test, Xp_test))
                 valid  = loss_fn(Y_test, Y_pred)
-                self.print_status(ep, valid, fname='valid')
+                self.print_status(ep, [valid], fname='valid')
 
                 if valid_func:
                     self.validation(ep)
@@ -275,9 +286,9 @@ class DeepONet:
 
         # Loss functions
         output_file = open(self.dest + f'{fname}.dat', 'a')
-        print(ep, f'{loss}', 
-              file=output_file)
+        print(ep, *loss, file=output_file)
         output_file.close()
+
         if verbose:
             print(ep, f'{loss}')
 
@@ -300,3 +311,23 @@ class BiasLayer(keras.layers.Layer):
 @tf.function
 def MSE_loss(y_true, y_pred):
     return tf.reduce_mean(tf.math.square(y_true - y_pred))
+
+class AdaptiveAct(keras.layers.Layer):
+    """ Adaptive activation function """
+    def __init__(self, activation=keras.activations.tanh, **kwargs):
+        super().__init__(**kwargs)
+        self.activation = activation
+
+    def build(self, batch_input_shape):
+        ini = keras.initializers.Constant(value=1./10)
+        self.a = self.add_weight(name='activation',
+                                 initializer=ini,
+                                 shape=[1])
+        super().build(batch_input_shape)
+
+    def call(self, X):
+        aux = tf.multiply(tf.cast(10.0, 'float64'),  self.a)
+        return self.activation(tf.multiply(aux, X))
+
+    def compute_output_shape(self, batch_input_shape):
+        return batch_input_shape
