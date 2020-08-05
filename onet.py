@@ -225,11 +225,11 @@ class DeepONet:
             # Print status
             if ep%print_freq==0:
                 try:
-                    self.print_status(ep, [loss], verbose=verbose)
+                    self.print_status(ep, [loss.numpy()], verbose=verbose)
                 except:
                     Y_pred = self.model((Xf_test, Xp_test))
                     loss   = loss_fn(Y_test, Y_pred)
-                    self.print_status(ep, [loss], verbose=verbose)
+                    self.print_status(ep, [loss.numpy()], verbose=verbose)
 
                 # Print adaptive weights evol
                 if self.activation=='adaptive_layer':
@@ -240,7 +240,7 @@ class DeepONet:
             if valid_freq and ep%valid_freq==0:
                 Y_pred = self.model((Xf_test, Xp_test))
                 valid  = loss_fn(Y_test, Y_pred)
-                self.print_status(ep, [valid], fname='valid')
+                self.print_status(ep, [valid.numpy()], fname='valid')
 
                 if valid_func:
                     self.validation(ep)
