@@ -168,7 +168,9 @@ class PhysicsInformedNN:
                                            model=self.model,
                                            balance=self.balance,
                                            optimizer=self.optimizer)
-        self.manager = tf.train.CheckpointManager(self.ckpt, self.dest, max_to_keep=5)
+        self.manager = tf.train.CheckpointManager(self.ckpt,
+                                                  self.dest + '/ckpt',
+                                                  max_to_keep=5)
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
