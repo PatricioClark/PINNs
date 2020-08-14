@@ -106,12 +106,15 @@ class PhysicsInformedNN:
         self.activation  = activation
 
         # Activation function
+        self.adaptive = False
         if activation=='tanh':
             self.act_fn = keras.activations.tanh
         elif activation=='relu':
             self.act_fn = keras.activations.relu
         elif activation == 'adaptive_global':
             self.act_fn = AdaptiveAct()
+        elif activation == 'adaptive_layer':
+            self.adaptive = True
 
         # Input definition
         coords = keras.layers.Input(self.din, name='coords')
@@ -375,6 +378,7 @@ class PhysicsInformedNN:
                     print("Time per batch:", time.time()-t0)
                     if ba>10: timer = False
 
+
             # Print status
             if ep%print_freq==0:
                 self.print_status(ep,
@@ -496,6 +500,14 @@ class PhysicsInformedNN:
                   file=output_file)
             output_file.close()
 
+        # Adaptive weights
+        if self.adaptive:
+            adps = [v.numpy()[0] for v in self.model.trainable_variables if 'adaptive' in v.name]
+            output_file = open(self.dest + 'adaptive.dat', 'a')
+            print(ep, *adps,
+                  file=output_file)
+            output_file.close()
+
     def grad(self, coords):
         """
         Neural network gradient
@@ -611,7 +623,10 @@ class AdaptiveAct(keras.layers.Layer):
         self.activation = activation
 
     def build(self, batch_input_shape):
-        self.a = self.add_weight(name='activation', shape=[1])
+        ini = keras.initializers.Constant(value=1./10)
+        self.a = self.add_weight(name='activation',
+                                 initializer=ini,
+                                 shape=[1])
         super().build(batch_input_shape)
 
     def call(self, X):
