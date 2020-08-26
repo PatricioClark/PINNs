@@ -162,14 +162,16 @@ class PhysicsInformedNN:
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
 
-        # Parameter for dyncamic balance
+        # Parameters for dynamic balance
         # Can be modified from the outside before calling PINN.train
-        self.balance = tf.Variable(1.0, name='balance')
+        self.bal_data = tf.Variable(1.0, name='bal_data')
+        self.bal_phys = tf.Variable(1.0, name='bal_phys')
 
         # Create save checkpoints / Load if existing previous
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
-                                           balance=self.balance,
+                                           bal_data=self.bal_data,
+                                           bal_phys=self.bal_phys,
                                            optimizer=self.optimizer)
         self.manager = tf.train.CheckpointManager(self.ckpt,
                                                   self.dest + '/ckpt',
@@ -237,6 +239,7 @@ class PhysicsInformedNN:
               lambda_data=1.0,
               lambda_phys=1.0,
               alpha=0.0,
+              nkt_balance=False,
               flags=None,
               rnd_order_training=True,
               verbose=False,
@@ -279,8 +282,13 @@ class PhysicsInformedNN:
             to the particular lambda_phys of the corresponding data point.
         alpha : float [optional]
             If non-zero, performs adaptive balance of the physics and data part
-            of the loss functions. See comment above for reference. Default is
+            of the loss functions. See comment above for reference. Cannot be
+            set if "nkt_balance" is also set. Default is
             zero.
+        nkt_balance : bool [optional]
+            If True, performs adaptive balance of the physics and data part
+            of the loss functions based on NKT theory. See comment above for
+            reference. Cannot be set if "alpha" is also set. Default is False.
         flags: ndarray of ints [optional]
             If supplied, different flags will be used to group different
             points, and then each batch will be formed by picking points from
@@ -327,7 +335,8 @@ class PhysicsInformedNN:
         flag_idxs = [np.where(flags==f)[0] for f in np.unique(flags)]
 
         # Cast balance
-        balance = tf.constant(self.balance.numpy(), dtype='float32')
+        bal_data = tf.constant(self.bal_data.numpy(), dtype='float32')
+        bal_phys = tf.constant(self.bal_phys.numpy(), dtype='float32')
 
         # Run epochs
         ep0     = int(self.ckpt.step)
@@ -356,13 +365,16 @@ class PhysicsInformedNN:
                 (loss_data,
                  loss_phys,
                  inv_outputs,
-                 balance) = self.training_step(X_batch, Y_batch,
+                 bal_data,
+                 bal_phys) = self.training_step(X_batch, Y_batch,
                                                    pde,
                                                    l_data,
                                                    l_phys,
                                                    data_mask,
-                                                   balance,
+                                                   bal_data,
+                                                   bal_phys,
                                                    alpha,
+                                                   nkt_balance,
                                                    ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
@@ -376,6 +388,7 @@ class PhysicsInformedNN:
                                   loss_phys,
                                   inv_outputs,
                                   alpha,
+                                  nkt_balance,
                                   verbose=verbose)
 
             # Perform validation check
@@ -384,14 +397,15 @@ class PhysicsInformedNN:
 
             # Save progress
             self.ckpt.step.assign_add(1)
-            self.ckpt.balance.assign(balance.numpy())
+            self.ckpt.bal_data.assign(bal_data.numpy())
+            self.ckpt.bal_phys.assign(bal_phys.numpy())
             if ep%save_freq==0:
                 self.manager.save()
 
     @tf.function
     def training_step(self, X_batch, Y_batch,
                       pde, lambda_data, lambda_phys,
-                      data_mask, balance, alpha, ba):
+                      data_mask, bal_data, bal_phys, alpha, nkt_balance, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(X_batch, training=True)
@@ -434,21 +448,33 @@ class PhysicsInformedNN:
         # Delete tape
         del tape
 
-        # If doing dynamic balance, calculate balance
+        # Check that both alpha and nkt_balance are True
+        if alpha and nkt_balance:
+            raise ValueError("Both alpha and nkt_balance cannot have True"
+                             " values. Choose one, please.")
+
+        # alpha-based dynamic balance
         if alpha>0.0:
             mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
             mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
             lhat = mean_grad_phys/mean_grad_data
-            balance = (1.0-alpha)*balance + alpha*lhat
+            bal_data = (1.0-alpha)*bal_data + alpha*lhat
+
+        # NKT theory dynamic balance
+        # if nkt_balance:
 
         # Apply gradients
-        gradients = [x + balance*y for x,y in zip(gradients_phys, gradients_data)]
+        gradients = [bal_data*g_data + bal_phys*g_phys
+                     for g_data, g_phys in zip(gradients_data, gradients_phys)]
         self.optimizer.apply_gradients(zip(gradients,
                     self.model.trainable_variables))
 
-        return loss_data, loss_phys, [param[0][0] for param in p_pred], balance
+        return (loss_data, loss_phys,
+                [param[0][0] for param in p_pred],
+                bal_data, bal_phys)
 
-    def print_status(self, ep, lu, lf, inv_outputs, alpha, verbose=False):
+    def print_status(self, ep, lu, lf,
+                     inv_outputs, alpha, nkt_balance, verbose=False):
         """ Print status function """
 
         # Loss functions
@@ -467,10 +493,17 @@ class PhysicsInformedNN:
                       file=output_file)
             output_file.close()
 
-        # Balance lambda
+        # Balance lambda with alpha
         if alpha:
             output_file = open(self.dest + 'balance.dat', 'a')
-            print(ep, self.balance.numpy(),
+            print(ep, self.bal_data.numpy(),
+                  file=output_file)
+            output_file.close()
+
+        # Balance lambda with NKT
+        if nkt_balance:
+            output_file = open(self.dest + 'balance.dat', 'a')
+            print(ep, self.bal_data.numpy(), self.bal_phys.numpy(),
                   file=output_file)
             output_file.close()
 
