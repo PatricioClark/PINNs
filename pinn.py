@@ -26,9 +26,12 @@ class PhysicsInformedNN:
     of the entries contains the different learned parameters when running an
     inverse PINN or a dummy output that should be disregarded when not.
 
-    Training can be done usuing the dynamic balance described in
+    Training can be done usuing the dynamic balance methods described in
     "Understanding and mitigating gradient pathologies in physics-informed
-    neural networks" by Wang, Teng & Perdikaris (2020).
+    neural networks" by Wang, Teng & Perdikaris (2020) (alpha option in
+    training) or "When and why PINNs fail to train: A neural tangent kernel
+    perspective" by Wang, Yu & Perdikaris (2020) (nkt_balance option in
+    training).
 
     A few definitions before proceeding to the initialization parameters:
     
@@ -461,7 +464,14 @@ class PhysicsInformedNN:
             bal_data = (1.0-alpha)*bal_data + alpha*lhat
 
         # NKT theory dynamic balance
-        # if nkt_balance:
+        if nkt_balance:
+            tr_kuu = get_tr_k(gradients_data)
+            tr_krr = get_tr_k(gradients_phys)
+
+            tr_k   = tr_kuu + tr_krr
+
+            bal_data = tr_k/tr_kuu
+            bal_phys = tr_k/tr_krr
 
         # Apply gradients
         gradients = [bal_data*g_data + bal_phys*g_phys
@@ -609,6 +619,12 @@ def get_max_grad(grads):
     max_of_layers = [tf.reduce_max(tf.abs(gr)) for gr in grads]
     total_max       = tf.reduce_max(max_of_layers)
     return total_max
+
+@tf.function
+def get_tr_k(grads):
+    sum_over_layers = [tf.reduce_sum(tf.square(gr)) for gr in grads]
+    total_sum       = tf.add_n(sum_over_layers)
+    return total_sum
 
 def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
     idxs = []
