@@ -237,7 +237,6 @@ class PhysicsInformedNN:
               lambda_data=1.0,
               lambda_phys=1.0,
               alpha=0.0,
-              bal_kick=0.0,
               flags=None,
               rnd_order_training=True,
               verbose=False,
@@ -282,8 +281,6 @@ class PhysicsInformedNN:
             If non-zero, performs adaptive balance of the physics and data part
             of the loss functions. See comment above for reference. Default is
             zero.
-        bal_kick : float [optional]
-            If threshold is crossed, kick balance.
         flags: ndarray of ints [optional]
             If supplied, different flags will be used to group different
             points, and then each batch will be formed by picking points from
@@ -366,7 +363,6 @@ class PhysicsInformedNN:
                                                    data_mask,
                                                    balance,
                                                    alpha,
-                                                   bal_kick,
                                                    ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
@@ -395,7 +391,7 @@ class PhysicsInformedNN:
     @tf.function
     def training_step(self, X_batch, Y_batch,
                       pde, lambda_data, lambda_phys,
-                      data_mask, balance, alpha, bal_kick, ba):
+                      data_mask, balance, alpha, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(X_batch, training=True)
@@ -444,9 +440,6 @@ class PhysicsInformedNN:
             mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
             lhat = mean_grad_phys/mean_grad_data
             balance = (1.0-alpha)*balance + alpha*lhat
-            if bal_kick and balance>bal_kick:
-                print(balance, bal_kick)
-                balance /= 10.0
 
         # Apply gradients
         gradients = [x + balance*y for x,y in zip(gradients_phys, gradients_data)]
