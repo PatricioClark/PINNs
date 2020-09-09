@@ -159,12 +159,15 @@ class DeepONet:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
     def train(self,
-              Xf, Xp, Y,
-              epochs, batch_size,
+              train_data,
+              epochs=10,
+              batch_size=32,
               loss_fn='mse',
+              data_in_dataset=False,
               verbose=False,
               print_freq=1,
               valid_freq=0,
+              buffer_size=100,
               valid_func=False,
               Xf_test=None, Xp_test=None, Y_test=None,
               save_freq=1,
@@ -177,19 +180,21 @@ class DeepONet:
         Parameters
         ----------
 
-        Xf : ndarray
-            Input for branch network. Must have shape (:, m).
-        Xp : ndarray
-            Input for trunk network. Must have shape (:, dim_y).
-        Y : ndarray
-            Data used for training, G(u)(y)
-            Must have shape (:, 1).
-        epochs : int
+        train_data : tuple of ndarray or dataset
+            The tuple or dataset must be composed of (Xf, Xp, Y), where Xf is
+            the input for the branch network and has shape (:,m), Xp is the
+            input for the trunk network and has shape (:, dim_y) and Y is data
+            output data used for training and has shape (:,1). If dataset is
+            already supplied as a tf.data.Dataset turn the data_in_dataset
+            option to True.
+        epochs : int [optional]
             Number of epochs to train.
-        batch_size : int
+        batch_size : int [optional]
             Size of batches.
         loss_fn : str [optional]
             Loss function to be used for training and validation.
+        data_in_dataset : bool [optional]
+            If True, input data is a tf.data.Dataset. Default is False.
         verbose : bool [optional]
             Verbose output or not. Default is False.
         print_freq : int [optional]
@@ -215,9 +220,11 @@ class DeepONet:
         if loss_fn=='mse':
             loss_fn = MSE_loss
 
-        train_dataset = tf.data.Dataset.from_tensor_slices((Xf, Xp, Y))
-        train_dataset = train_dataset.shuffle(Y.shape[0]).repeat()
-        train_dataset = train_dataset.batch(batch_size).prefetch(1)
+        # Create batches
+        if not data_in_dataset:
+            train_data = tf.data.Dataset.from_tensor_slices(train_data)
+        train_data = train_data.shuffle(buffer_size).repeat()
+        train_data = train_data.batch(batch_size).prefetch(1)
 
         # Run epochs
         ep0 = int(self.ckpt.step)
@@ -251,7 +258,7 @@ class DeepONet:
                 self.manager.save()
             
             # Loop through batches
-            for ba, (Xf_batch, Xp_batch, Y_batch) in enumerate(train_dataset):
+            for ba, (Xf_batch, Xp_batch, Y_batch) in enumerate(train_data):
                 if timer: t0 = time.time()
                 loss = self.training_step(Xf_batch, Xp_batch, Y_batch, loss_fn)
                 if timer:

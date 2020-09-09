@@ -73,7 +73,7 @@ Xf_train, Xp_train, Y_train, Xf_test, Xp_test, Y_test = get_data(ell, m, num_tes
 donet = DeepONet(m=m, dim_y=1, depth_branch=2, depth_trunk=2, p=40)
 
 # Train
-donet.train(Xf_train, Xp_train, Y_train,
+donet.train((Xf_train, Xp_train, Y_train),
         epochs=epochs, batch_size=bsize,
         verbose=True,
         timer=True,
