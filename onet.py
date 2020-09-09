@@ -66,6 +66,7 @@ class DeepONet:
                  optimizer=keras.optimizers.Adam(lr=1e-3),
                  norm_in=False,
                  norm_out=False,
+                 norm_out_type='z-score',
                  restore=True):
 
         # Numbers and dimensions
@@ -137,10 +138,15 @@ class DeepONet:
         output = BiasLayer()(output)
 
         if norm_out:
-            mm = norm_out[0]
-            sg = norm_out[1]
-            zscore = lambda x: sg*x + mm 
-            output = keras.layers.Lambda(zscore)(output)
+            if norm_out_type=='z_score':
+                mm = norm_out[0]
+                sg = norm_out[1]
+                out_norm = lambda x: sg*x + mm 
+            elif norm_out_type=='min_max':
+                ymin = norm_out[0]
+                ymax = norm_out[1]
+                out_norm = lambda x: 0.5*(x+1)*(ymax-ymin) + ymin
+            output = keras.layers.Lambda(out_norm)(output)
 
         # Create model
         model = keras.Model(inputs=[funct, point], outputs=output)
