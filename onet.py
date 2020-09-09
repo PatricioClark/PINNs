@@ -18,10 +18,6 @@ class DeepONet:
     Parameters
     ----------
 
-    dim_f : int [optional]
-        Dimensions of input function function (first dimension of branch
-        network's input). If value is 1 dimension can be omitted in
-        datashape in that case.
     m : int
         Number of sensors (second dimension of branch network's input)
     dim_y : int
@@ -54,7 +50,6 @@ class DeepONet:
     # Initialize the class
     def __init__(self,
                  m,
-                 dim_f,
                  dim_y,
                  depth_branch,
                  depth_trunk,
@@ -70,7 +65,6 @@ class DeepONet:
                  restore=True):
 
         # Numbers and dimensions
-        self.dim_f        = dim_f
         self.m            = m
         self.dim_y        = dim_y
         self.depth_branch = depth_branch
@@ -94,8 +88,8 @@ class DeepONet:
             self.act_fn = AdaptiveAct()
 
         # Inputs definition
-        funct = keras.layers.Input((dim_f, m), name='funct')
-        point = keras.layers.Input(dim_y,      name='point')
+        funct = keras.layers.Input(m,     name='funct')
+        point = keras.layers.Input(dim_y, name='point')
 
         # Normalize input
         if norm_in:
@@ -184,12 +178,12 @@ class DeepONet:
         ----------
 
         Xf : ndarray
-            Input for branch network. Must have shape (:, dim_f, m).
+            Input for branch network. Must have shape (:, m).
         Xp : ndarray
             Input for trunk network. Must have shape (:, dim_y).
         Y : ndarray
             Data used for training, G(u)(y)
-            Must have shape (:, dim_f).
+            Must have shape (:, 1).
         epochs : int
             Number of epochs to train.
         batch_size : int
@@ -204,12 +198,12 @@ class DeepONet:
             Validation check frequency. If zero, no validation is performed.
             Default is 0.
         Xf_test : ndarray
-            Input for branch network used for testing. Must have shape (:, dim_f, m).
+            Input for branch network used for testing. Must have shape (:, m).
         Xp_test : ndarray
             Input for trunk network used for testing. Must have shape (:, dim_y).
         Y_test : ndarray
             Data used for testing, G(u)(y)
-            Must have shape (:, dim_f).
+            Must have shape (:, 1).
         save_freq : int [optional]
             Save model frequency. Default is 1.
         timer : bool [optional]
