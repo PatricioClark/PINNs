@@ -211,13 +211,13 @@ class DeepONet:
             False.
         """
 
-        len_data = Y.shape[0]
-        batches = len_data // batch_size
-        idx_arr = np.arange(len_data)
-
         # Define loss function
         if loss_fn=='mse':
             loss_fn = MSE_loss
+
+        train_dataset = tf.data.Dataset.from_tensor_slices((Xf, Xp, Y))
+        train_dataset = train_dataset.shuffle(Y.shape[0]).repeat()
+        train_dataset = train_dataset.batch(batch_size).prefetch(1)
 
         # Run epochs
         ep0 = int(self.ckpt.step)
@@ -251,15 +251,7 @@ class DeepONet:
                 self.manager.save()
             
             # Loop through batches
-            for ba in range(batches):
-
-                # Create batches and cast to TF objects
-                Xf_batch, Xp_batch, Y_batch = get_mini_batch(Xf, Xp, Y,
-                                                             idx_arr, batch_size)
-                Xf_batch = tf.convert_to_tensor(Xf_batch)
-                Xp_batch = tf.convert_to_tensor(Xp_batch)
-                Y_batch  = tf.convert_to_tensor(Y_batch)
-
+            for ba, (Xf_batch, Xp_batch, Y_batch) in enumerate(train_dataset):
                 if timer: t0 = time.time()
                 loss = self.training_step(Xf_batch, Xp_batch, Y_batch, loss_fn)
                 if timer:
