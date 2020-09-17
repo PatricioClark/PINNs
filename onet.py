@@ -168,6 +168,7 @@ class DeepONet:
               verbose=False,
               print_freq=1,
               valid_freq=0,
+              early_stopping=False,
               valid_func=False,
               Xf_test=None, Xp_test=None, Y_test=None, W_test=None,
               save_freq=1,
@@ -206,6 +207,9 @@ class DeepONet:
         valid_freq : int [optional]
             Validation check frequency. If zero, no validation is performed.
             Default is 0.
+        early_stopping : bool [optional]
+            If True only saves the model Checkpoint when the validation is
+            decreasing. Default is False.
         Xf_test : ndarray
             Input for branch network used for testing. Must have shape (:, m).
         Xp_test : ndarray
@@ -237,6 +241,7 @@ class DeepONet:
 
         # Run epochs
         ep0 = int(self.ckpt.step)
+        best_val = np.inf
         for ep in range(ep0, ep0+epochs):
             # Print status
             if ep%print_freq==0:
@@ -265,8 +270,11 @@ class DeepONet:
 
             # Save progress
             self.ckpt.step.assign_add(1)
-            if ep%save_freq==0:
+            if ep%save_freq==0 and valid.numpy()<best_val:
                 self.manager.save()
+                
+                if early_stopping:
+                    best_val = valid.numpy()
             
             # Loop through batches
             for ba, (Xf_batch,
