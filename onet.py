@@ -164,12 +164,12 @@ class DeepONet:
               batch_size=32,
               loss_fn='mse',
               data_in_dataset=False,
+              buffer_size=None,
               verbose=False,
               print_freq=1,
               valid_freq=0,
-              buffer_size=100,
               valid_func=False,
-              Xf_test=None, Xp_test=None, Y_test=None,
+              Xf_test=None, Xp_test=None, Y_test=None, W_test=None,
               save_freq=1,
               timer=False):
         """
@@ -181,11 +181,12 @@ class DeepONet:
         ----------
 
         train_data : tuple of ndarray or dataset
-            The tuple or dataset must be composed of (Xf, Xp, Y), where Xf is
-            the input for the branch network and has shape (:,m), Xp is the
-            input for the trunk network and has shape (:, dim_y) and Y is data
-            output data used for training and has shape (:,1). If dataset is
-            already supplied as a tf.data.Dataset turn the data_in_dataset
+            The tuple or dataset must be composed of (Xf, Xp, Y, W), where Xf
+            is the input for the branch network and has shape (:,m), Xp is the
+            input for the trunk network and has shape (:, dim_y), Y is data
+            output data used for training and has shape (:,1), and W are the
+            weights used in the loss function and have shape (:,1). If dataset
+            is already supplied as a tf.data.Dataset turn the data_in_dataset
             option to True.
         epochs : int [optional]
             Number of epochs to train.
@@ -195,6 +196,9 @@ class DeepONet:
             Loss function to be used for training and validation.
         data_in_dataset : bool [optional]
             If True, input data is a tf.data.Dataset. Default is False.
+        buffer_size : int [optional]
+            Buffer size used in dataset shuffle method. If None the cardinality
+            of the train_data is used. Default is None.
         verbose : bool [optional]
             Verbose output or not. Default is False.
         print_freq : int [optional]
@@ -208,6 +212,9 @@ class DeepONet:
             Input for trunk network used for testing. Must have shape (:, dim_y).
         Y_test : ndarray
             Data used for testing, G(u)(y)
+            Must have shape (:, 1).
+        W_test : ndarray
+            Weights used in the loss function.
             Must have shape (:, 1).
         save_freq : int [optional]
             Save model frequency. Default is 1.
@@ -223,6 +230,8 @@ class DeepONet:
         # Create batches
         if not data_in_dataset:
             train_data = tf.data.Dataset.from_tensor_slices(train_data)
+        if buffer_size is None:
+            buffer_size = len(train_data)
         train_data = train_data.shuffle(buffer_size).repeat()
         train_data = train_data.batch(batch_size).prefetch(1)
 
@@ -235,18 +244,20 @@ class DeepONet:
                     self.print_status(ep, [loss.numpy()], verbose=verbose)
                 except:
                     Y_pred = self.model((Xf_test, Xp_test))
-                    loss   = loss_fn(Y_test, Y_pred)
+                    loss   = loss_fn(Y_test, Y_pred, W_test)
                     self.print_status(ep, [loss.numpy()], verbose=verbose)
 
                 # Print adaptive weights evol
                 if self.activation=='adaptive_layer':
-                    adps = [v.numpy()[0] for v in self.model.trainable_variables if 'adaptive' in v.name]
+                    adps = [v.numpy()[0]
+                            for v in self.model.trainable_variables
+                            if 'adaptive' in v.name]
                     self.print_status(ep, adps, fname='adpt')
 
             # Perform validation check
             if valid_freq and ep%valid_freq==0:
                 Y_pred = self.model((Xf_test, Xp_test))
-                valid  = loss_fn(Y_test, Y_pred)
+                valid  = loss_fn(Y_test, Y_pred, W_test)
                 self.print_status(ep, [valid.numpy()], fname='valid')
 
                 if valid_func:
@@ -258,18 +269,22 @@ class DeepONet:
                 self.manager.save()
             
             # Loop through batches
-            for ba, (Xf_batch, Xp_batch, Y_batch) in enumerate(train_data):
+            for ba, (Xf_batch,
+                     Xp_batch,
+                      Y_batch,
+                      W_batch) in enumerate(train_data):
                 if timer: t0 = time.time()
-                loss = self.training_step(Xf_batch, Xp_batch, Y_batch, loss_fn)
+                loss = self.training_step(Xf_batch, Xp_batch,
+                                           Y_batch,  W_batch, loss_fn)
                 if timer:
                     print("Time per batch:", time.time()-t0)
                     if ba>10 or ep>5: timer = False
 
     @tf.function
-    def training_step(self, Xf_batch, Xp_batch, Y_batch, loss_fn):
+    def training_step(self, Xf_batch, Xp_batch, Y_batch, W_batch, loss_fn):
         with tf.GradientTape() as tape:
             Y_pred = self.model((Xf_batch, Xp_batch), training=True)
-            loss   = loss_fn(Y_batch, Y_pred)
+            loss   = loss_fn(Y_batch, Y_pred, W_batch)
 
         # Calculate gradients
         gradients = tape.gradient(loss, self.model.trainable_variables)
@@ -291,10 +306,6 @@ class DeepONet:
         if verbose:
             print(ep, f'{loss}')
 
-def get_mini_batch(X1, X2, Y, idx_arr, batch_size):
-    idxs = np.random.choice(idx_arr, batch_size)
-    return X1[idxs], X2[idxs], Y[idxs]
-
 class BiasLayer(keras.layers.Layer):
     def __init__(self, *args, **kwargs):
         super(BiasLayer, self).__init__(*args, **kwargs)
@@ -308,7 +319,7 @@ class BiasLayer(keras.layers.Layer):
         return x + self.bias
 
 @tf.function
-def MSE_loss(y_true, y_pred):
+def MSE_loss(y_true, y_pred, weights):
     return tf.reduce_mean(tf.math.square(y_true - y_pred))
 
 class AdaptiveAct(keras.layers.Layer):

@@ -29,7 +29,10 @@ def get_data(ell, m, num):
         np.save('X1_test.npy',  X1_test)
         np.save('X2_test.npy',  X2_test)
         np.save('Y_test.npy',  Y_test)
-    return X1_train, X2_train, Y_train, X1_test, X2_test, Y_test
+    W_train = np.ones(np.shape(Y_train))
+    W_test = np.ones(np.shape(Y_train))
+    return (X1_train, X2_train, Y_train, W_train,
+            X1_test,  X2_test,  Y_test,  W_test)
 
 def generate_data(ell, m, num):
     # Specify Gaussian Process
@@ -67,13 +70,20 @@ num_testing  = 10000
 epochs       = 50000
 bsize        = 10000
 
-Xf_train, Xp_train, Y_train, Xf_test, Xp_test, Y_test = get_data(ell, m, num_testing)
+(Xf_train,
+ Xp_train,
+ Y_train,
+ W_train,
+ Xf_test,
+ Xp_test,
+ Y_test,
+ W_test)= get_data(ell, m, num_testing)
 
 # Initialize
 donet = DeepONet(m=m, dim_y=1, depth_branch=2, depth_trunk=2, p=40)
 
 # Train
-donet.train((Xf_train, Xp_train, Y_train),
+donet.train((Xf_train, Xp_train, Y_train, W_train),
         epochs=epochs, batch_size=bsize,
         verbose=True,
         timer=True,
@@ -82,7 +92,8 @@ donet.train((Xf_train, Xp_train, Y_train),
         valid_freq=1000,
         Xf_test=Xf_test,
         Xp_test=Xp_test,
-        Y_test=Y_test)
+        Y_test=Y_test,
+        W_test=W_test)
 
 # Test example
 ii = 20
