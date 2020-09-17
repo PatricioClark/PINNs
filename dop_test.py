@@ -83,7 +83,7 @@ bsize        = 10000
 donet = DeepONet(m=m, dim_y=1, depth_branch=2, depth_trunk=2, p=40)
 
 # Train
-donet.train((Xf_train, Xp_train, Y_train, W_train),
+donet.train(Xf_train, Xp_train, Y_train,
         epochs=epochs, batch_size=bsize,
         verbose=True,
         timer=True,

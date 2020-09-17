@@ -159,7 +159,7 @@ class DeepONet:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
     def train(self,
-              train_data,
+              Xf, Xp, Y, W=None,
               epochs=10,
               batch_size=32,
               loss_fn='mse',
@@ -181,14 +181,16 @@ class DeepONet:
         Parameters
         ----------
 
-        train_data : tuple of ndarray or dataset
-            The tuple or dataset must be composed of (Xf, Xp, Y, W), where Xf
-            is the input for the branch network and has shape (:,m), Xp is the
-            input for the trunk network and has shape (:, dim_y), Y is data
-            output data used for training and has shape (:,1), and W are the
-            weights used in the loss function and have shape (:,1). If dataset
-            is already supplied as a tf.data.Dataset turn the data_in_dataset
-            option to True.
+        Xf : ndarray
+            Input for branch network. Must have shape (:, dim_f, m).
+        Xp : ndarray
+            Input for trunk network. Must have shape (:, dim_y).
+        Y : ndarray
+            Data used for training, G(u)(y)
+            Must have shape (:, dim_f).
+        W : ndarray [optional]
+            Weights used for the loss function. If None then ones are used.
+            Default is None. Must have the same shape as Y.
         epochs : int [optional]
             Number of epochs to train.
         batch_size : int [optional]
@@ -227,17 +229,17 @@ class DeepONet:
             False.
         """
 
+        len_data = Y.shape[0]
+        batches = len_data // batch_size
+        idx_arr = np.arange(len_data)
+
         # Define loss function
         if loss_fn=='mse':
             loss_fn = MSE_loss
 
-        # Create batches
-        if not data_in_dataset:
-            train_data = tf.data.Dataset.from_tensor_slices(train_data)
-        if buffer_size is None:
-            buffer_size = len(train_data)
-        train_data = train_data.shuffle(buffer_size).repeat()
-        train_data = train_data.batch(batch_size).prefetch(1)
+        # Make weights
+        if W is None:
+            W = np.ones(np.shape(Y))
 
         # Run epochs
         ep0 = int(self.ckpt.step)
@@ -277,13 +279,19 @@ class DeepONet:
                     best_val = valid.numpy()
             
             # Loop through batches
-            for ba, (Xf_batch,
-                     Xp_batch,
-                      Y_batch,
-                      W_batch) in enumerate(train_data):
+            for ba in range(batches):
+
+                # Create batches and cast to TF objects
+                (Xf_batch, Xp_batch,
+                  Y_batch, W_batch)  = get_mini_batch(Xf, Xp, Y, W,
+                                                      idx_arr, batch_size)
+                Xf_batch = tf.convert_to_tensor(Xf_batch)
+                Xp_batch = tf.convert_to_tensor(Xp_batch)
+                Y_batch  = tf.convert_to_tensor(Y_batch)
+                W_batch  = tf.convert_to_tensor(W_batch)
+
                 if timer: t0 = time.time()
-                loss = self.training_step(Xf_batch, Xp_batch,
-                                           Y_batch,  W_batch, loss_fn)
+                loss = self.training_step(Xf_batch, Xp_batch, Y_batch, W_batch, loss_fn)
                 if timer:
                     print("Time per batch:", time.time()-t0)
                     if ba>10 or ep>5: timer = False
@@ -313,6 +321,10 @@ class DeepONet:
 
         if verbose:
             print(ep, f'{loss}')
+
+def get_mini_batch(X1, X2, Y, W, idx_arr, batch_size):
+    idxs = np.random.choice(idx_arr, batch_size)
+    return X1[idxs], X2[idxs], Y[idxs], W[idxs]
 
 class BiasLayer(keras.layers.Layer):
     def __init__(self, *args, **kwargs):
