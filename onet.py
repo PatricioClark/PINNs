@@ -82,10 +82,19 @@ class DeepONet:
         # Activation function
         if activation=='tanh':
             self.act_fn = keras.activations.tanh
+            self.kinit  = 'glorot_normal'
         elif activation=='relu':
             self.act_fn = keras.activations.relu
+            self.kinit  = 'he_normal'
+        elif activation=='elu':
+            self.act_fn = keras.activations.elu
+            self.kinit  = 'he_normal'
+        elif activation=='selu':
+            self.act_fn = keras.activations.selu
+            self.kinit  = 'lecun_normal'
         elif activation == 'adaptive_global':
             self.act_fn = AdaptiveAct()
+            self.kinit  = 'glorot_normal'
 
         # Inputs definition
         funct = keras.layers.Input(m,     name='funct')
@@ -111,10 +120,12 @@ class DeepONet:
                 self.act_fn = AdaptiveAct()
             hid_b = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
+                                       kernel_initializer=self.kinit,
                                        activation=self.act_fn)(hid_b)
             if p_drop:
                 hid_b = keras.layers.Dropout(p_drop)(hid_b)
         hid_b = keras.layers.Dense(self.width,
+                                   kernel_initializer=self.kinit,
                                    kernel_regularizer=self.regu)(hid_b)
 
         # Trunk network
@@ -123,6 +134,7 @@ class DeepONet:
                 self.act_fn = AdaptiveAct()
             hid_t = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
+                                       kernel_initializer=self.kinit,
                                        activation=self.act_fn)(hid_t)
             if p_drop and ii<self.depth_trunk-1:
                 hid_t = keras.layers.Dropout(p_drop)(hid_t)
