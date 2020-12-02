@@ -437,6 +437,7 @@ class PhysicsInformedNN:
 
             # Total loss function
             loss = loss_data + loss_phys
+            loss = tf.add_n([loss] + self.model.losses)
 
         # Calculate gradients of data part
         gradients_data = tape.gradient(loss_data,
