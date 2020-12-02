@@ -181,6 +181,7 @@ class DeepONet:
               print_freq=1,
               valid_freq=0,
               early_stopping=False,
+              val_threshold=np.inf,
               valid_func=False,
               Xf_test=None, Xp_test=None, Y_test=None, W_test=None,
               save_freq=1,
@@ -287,7 +288,7 @@ class DeepONet:
             if ep%save_freq==0 and valid.numpy()<best_val:
                 self.manager.save()
                 
-                if early_stopping:
+                if early_stopping and valid.numpy()<val_threshold:
                     best_val = valid.numpy()
             
             # Loop through batches
@@ -313,9 +314,10 @@ class DeepONet:
         with tf.GradientTape() as tape:
             Y_pred = self.model((Xf_batch, Xp_batch), training=True)
             loss   = loss_fn(Y_batch, Y_pred, W_batch)
+            applied = tf.add_n([loss] + self.model.losses)
 
         # Calculate gradients
-        gradients = tape.gradient(loss, self.model.trainable_variables)
+        gradients = tape.gradient(applied, self.model.trainable_variables)
 
         # Apply gradients
         self.optimizer.apply_gradients(zip(gradients,
