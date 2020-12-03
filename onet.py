@@ -43,6 +43,10 @@ class DeepONet:
         If a number or an array of size dout is supplied, the layer layer of the
         network normalizes the outputs using z-score. Default is
         False.
+    norm_out_type : str [optional]
+        Type of output normalization to use. Default is 'z-score'.
+    save_freq : int [optional]
+        Save model frequency. Default is 1.
     restore : bool [optional]
         If True, it checks if a checkpoint exists in dest. If a checkpoint
         exists it restores the modelfrom there. Default is True.
@@ -62,6 +66,7 @@ class DeepONet:
                  norm_in=False,
                  norm_out=False,
                  norm_out_type='z-score',
+                 save_freq=1,
                  restore=True):
 
         # Numbers and dimensions
@@ -77,6 +82,7 @@ class DeepONet:
         self.norm_in     = norm_in
         self.norm_out    = norm_out
         self.optimizer   = optimizer
+        self.save_freq   = save_freq
         self.activation  = activation
 
         # Activation function
@@ -160,7 +166,7 @@ class DeepONet:
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
 
-        # Create save checkpoints / Load if existing previous
+        # Create save checkpoints, managers and callbacks
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
                                            optimizer=self.optimizer)
@@ -169,6 +175,25 @@ class DeepONet:
                                                   max_to_keep=5)
         if restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
+
+        self.ckpt_cb = self.ckpt_cb_creator(self.manager, self.ckpt, self.save_freq)
+
+        # Creater logger
+        self.logger = keras.callbacks.CSVLogger('output.dat',
+                                                append=True,
+                                                separator=' ')
+
+    def ckpt_cb_creator(self, manager, ckpt, save_freq):
+        ''' Create Checkpoint Callback that works like TF manager '''
+        class CkptCb(keras.callbacks.Callback):
+            def __init__(self_cb, ckpt):
+                super(CkptCb, self_cb).__init__()
+                self_cb.step = ckpt.step
+            def on_epoch_end(self_cb, epoch, logs):
+                if self_cb.step%save_freq==0:
+                    manager.save()
+                self_cb.step.assign_add(1)
+        return CkptCb(ckpt)
 
     def train(self,
               Xf, Xp, Y, W=None,
