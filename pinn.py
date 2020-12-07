@@ -164,6 +164,7 @@ class PhysicsInformedNN:
         self.model = model
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
+        self.num_trainable_vars = tf.cast(self.num_trainable_vars, tf.float32)
 
         # Parameters for dynamic balance
         # Can be modified from the outside before calling PINN.train
