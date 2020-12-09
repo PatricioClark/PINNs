@@ -427,18 +427,20 @@ def serialize_example(Xf, Xp, Y):
     return serialized
 
 # Parse data
-def parse_proto(example_proto):
-    features = {
-        'Xf': tf.io.FixedLenFeature([800], tf.float32),
-        'Xp': tf.io.FixedLenFeature([2], tf.float32),
-        'Y':  tf.io.FixedLenFeature([], tf.float32),
-    }
-    parsed_features = tf.io.parse_single_example(example_proto, features)
-    return (parsed_features['Xf'], parsed_features['Xp']), parsed_features['Y']
+def proto_wrapper(branch_sensors):
+    def parse_proto(example_proto):
+        features = {
+            'Xf': tf.io.FixedLenFeature([branch_sensors], tf.float32),
+            'Xp': tf.io.FixedLenFeature([2], tf.float32),
+            'Y':  tf.io.FixedLenFeature([], tf.float32),
+        }
+        parsed_features = tf.io.parse_single_example(example_proto, features)
+        return (parsed_features['Xf'], parsed_features['Xp']), parsed_features['Y']
+    return parse_proto
 
 # Load dataset
 AUTOTUNE = tf.data.experimental.AUTOTUNE
-def load_dataset(filepaths, batch_size, shuffle_buffer=0):
+def load_dataset(filepaths, branch_sensors, batch_size, shuffle_buffer=0):
     # Read records
     dataset = tf.data.TFRecordDataset(filepaths)
 
@@ -448,7 +450,7 @@ def load_dataset(filepaths, batch_size, shuffle_buffer=0):
     dataset = dataset.with_options(ignore_order)
 
     # Parse proto
-    dataset = dataset.map(parse_proto, num_parallel_calls=AUTOTUNE)
+    dataset = dataset.map(proto_wrapper(branch_sensors), num_parallel_calls=AUTOTUNE)
 
     # Shuffle, prefetch and batch
     if shuffle_buffer:
