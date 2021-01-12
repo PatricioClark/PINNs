@@ -43,6 +43,10 @@ class DeepONet:
         Path for output files.
     activation : str [optional]
         Activation function to be used. Default is 'relu'.
+    adaptive : str [optional]
+        If activated uses adaptive activation functions, based on the function
+        specified in `activation`. Options are False, 'adaptive_global' and
+        'adaptive_layer'. Defaulta if False.
     optimizer : keras.optimizer instance [optional]
         Optimizer to be used in the gradient descent. Default is Adam with
         fixed learning rate equal to 1e-3.
@@ -73,6 +77,7 @@ class DeepONet:
                  regularizer=None,
                  p_drop=0.0,
                  activation='relu',
+                 adaptive=False,
                  optimizer=keras.optimizers.Adam(lr=1e-3),
                  norm_in=False,
                  norm_out=False,
@@ -95,6 +100,7 @@ class DeepONet:
         self.optimizer   = optimizer
         self.save_freq   = save_freq
         self.activation  = activation
+        self.adaptive  = activation
 
         # Activation function
         if activation=='tanh':
@@ -109,9 +115,12 @@ class DeepONet:
         elif activation=='selu':
             self.act_fn = keras.activations.selu
             self.kinit  = 'lecun_normal'
-        elif activation == 'adaptive_global':
-            self.act_fn = AdaptiveAct()
-            self.kinit  = 'glorot_normal'
+
+        # Adaptive global
+        if   adaptive == 'adaptive_global':
+            self.act_fn = AdaptiveAct(activation=self.act_fn)
+        elif adaptive == 'adaptive_layer':
+            self.act_f0 = self.act_fn
 
         # Inputs definition
         funct = keras.layers.Input(m,     name='funct')
@@ -134,7 +143,7 @@ class DeepONet:
         # Branch network
         for ii in range(self.depth_branch-1):
             if activation=='adaptive_layer':
-                self.act_fn = AdaptiveAct()
+                self.act_fn = AdaptiveAct(activation=self.act_f0)
             hid_b = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
                                        kernel_initializer=self.kinit,
@@ -148,7 +157,7 @@ class DeepONet:
         # Trunk network
         for ii in range(self.depth_trunk):
             if activation=='adaptive_layer':
-                self.act_fn = AdaptiveAct()
+                self.act_fn = AdaptiveAct(activation=self.act_f0)
             hid_t = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
                                        kernel_initializer=self.kinit,
