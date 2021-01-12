@@ -1,6 +1,9 @@
-# Deep ONet general class
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
 
-# Requires Python 3.* and Tensorflow 2.0
+# DeepONet general class
+# Written by Patricio Clark Di Leoni at Johns Hopkins University
+# December 2020
 
 import os
 import copy
@@ -13,7 +16,15 @@ tf.keras.backend.set_floatx('float64')
 
 class DeepONet:
     """
-    General Deep Onet class
+    General DeepONet class
+
+    The class creates a keras.Model with a branch and trunk networks.
+
+    While the class constains a custom train method, it's adivised to use the
+    builtin fit method from keras.Model.
+
+    The class also creates a checkpoint and a logger callback to be used during
+    training.
 
     Parameters
     ----------
@@ -401,9 +412,9 @@ class AdaptiveAct(keras.layers.Layer):
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
 
-# #############
-# Datafunctions
-# #############
+# ###############################################
+# Functions for dataset processing and generation
+# ###############################################
 
 def _float_feature(value):
     """Returns a float_list from a float / double."""
@@ -426,6 +437,19 @@ def serialize_example(Xf, Xp, Y):
 
     return serialized
 
+# Used to generate the records
+def serialize_example_with_weights(Xf, Xp, Y, W):
+    feature = {
+        'Xf': _float_feature(Xf.flatten()),
+        'Xp': _float_feature(Xp.flatten()),
+        'Y':  _float_feature(Y.flatten()),
+        'W':  _float_feature(W.flatten()),
+    }
+    example    = tf.train.Example(features=tf.train.Features(feature=feature))
+    serialized = example.SerializeToString()
+
+    return serialized
+
 # Parse data
 def proto_wrapper(branch_sensors):
     def parse_proto(example_proto):
@@ -438,9 +462,26 @@ def proto_wrapper(branch_sensors):
         return (parsed_features['Xf'], parsed_features['Xp']), parsed_features['Y']
     return parse_proto
 
+# Parse data
+def proto_wrapper_with_weights(branch_sensors):
+    def parse_proto(example_proto):
+        features = {
+            'Xf': tf.io.FixedLenFeature([branch_sensors], tf.float32),
+            'Xp': tf.io.FixedLenFeature([2], tf.float32),
+            'Y':  tf.io.FixedLenFeature([], tf.float32),
+            'W':  tf.io.FixedLenFeature([], tf.float32),
+        }
+        parsed_features = tf.io.parse_single_example(example_proto, features)
+        return ((parsed_features['Xf'], parsed_features['Xp']),
+                 parsed_features['Y'],
+                 parsed_features['W'])
+    return parse_proto
+
 # Load dataset
 AUTOTUNE = tf.data.experimental.AUTOTUNE
-def load_dataset(filepaths, branch_sensors, batch_size, shuffle_buffer=0):
+def load_dataset(filepaths, branch_sensors, batch_size,
+                 use_weights=True,
+                 shuffle_buffer=0):
     # Read records
     dataset = tf.data.TFRecordDataset(filepaths)
 
@@ -450,7 +491,12 @@ def load_dataset(filepaths, branch_sensors, batch_size, shuffle_buffer=0):
     dataset = dataset.with_options(ignore_order)
 
     # Parse proto
-    dataset = dataset.map(proto_wrapper(branch_sensors), num_parallel_calls=AUTOTUNE)
+    if use_weights:
+        dataset = dataset.map(proto_wrapper_with_weights(branch_sensors),
+                              num_parallel_calls=AUTOTUNE)
+    else:
+        dataset = dataset.map(proto_wrapper(branch_sensors),
+                              num_parallel_calls=AUTOTUNE)
 
     # Shuffle, prefetch and batch
     if shuffle_buffer:
