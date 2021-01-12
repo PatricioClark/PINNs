@@ -84,29 +84,17 @@ bsize        = 10000
  Y_test,
  W_test)= get_data(ell, m, num_testing)
 
-# nice checkpoint
-def creator(manager, ckpt):
-    class NiceCheckpoint(keras.callbacks.Callback):
-        def __init__(self, ckpt):
-            super(NiceCheckpoint, self).__init__()
-            self.step = ckpt.step
-        def on_epoch_end(self, epoch, logs):
-            if self.step%5==0:
-                manager.save()
-            self.step.assign_add(1)
-    return NiceCheckpoint(ckpt)
-
-# Initialize
+# Initialize and compile model
 donet = DeepONet(m=m, dim_y=1, depth_branch=2, depth_trunk=2, p=40)
 donet.model.compile(optimizer=donet.optimizer, loss='mse')
 
 # Train
 donet.model.fit((Xf_train, Xp_train), Y_train,
         verbose=0,
-        initial_epoch=donet.ckpt.step.numpy(),
         epochs=40,
         batch_size=bsize,
-        callbacks = [donet.ckpt_cb, donet.logger],
+        initial_epoch=donet.ckpt.step.numpy(),
+        callbacks    = [donet.ckpt_cb, donet.logger],
         validation_data=((Xf_test, Xp_test), Y_test))
 
 # Test example
