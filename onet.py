@@ -47,6 +47,9 @@ class DeepONet:
         If activated uses adaptive activation functions, based on the function
         specified in `activation`. Options are False, 'global' and
         'layer'. Defaulta if False.
+    feature_expansion: func or None [optional]
+        If not None, then the trunk inputs are feature expanded using the
+        function provided. Default is None.
     optimizer : keras.optimizer instance [optional]
         Optimizer to be used in the gradient descent. Default is Adam with
         fixed learning rate equal to 1e-3.
@@ -140,6 +143,10 @@ class DeepONet:
         else:
             hid_b = funct
             hid_t = point
+
+        # Expand time
+        if feature_expansion is not None:
+            hid_t = keras.layers.Lambda(feature_expansion)(hid_t)
 
         # Branch network
         for ii in range(self.depth_branch-1):
