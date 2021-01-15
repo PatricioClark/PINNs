@@ -78,6 +78,7 @@ class DeepONet:
                  p_drop=0.0,
                  activation='relu',
                  adaptive=False,
+                 slope_recovery=False,
                  optimizer=keras.optimizers.Adam(lr=1e-3),
                  norm_in=False,
                  norm_out=False,
@@ -185,6 +186,14 @@ class DeepONet:
         self.model = model
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
+
+        # Add slope recovery
+        if adaptive and slope_recovery:
+            adps   = [tf.math.exp(v) for v in self.model.trainable_variables
+                      if 'adaptive' in v.name]
+            srecov = lambda: tf.reduce_mean(adps)
+            self.model.add_loss(srecov)
+
 
         # Create save checkpoints, managers and callbacks
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
