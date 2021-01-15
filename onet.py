@@ -45,8 +45,8 @@ class DeepONet:
         Activation function to be used. Default is 'relu'.
     adaptive : str [optional]
         If activated uses adaptive activation functions, based on the function
-        specified in `activation`. Options are False, 'adaptive_global' and
-        'adaptive_layer'. Defaulta if False.
+        specified in `activation`. Options are False, 'global' and
+        'layer'. Defaulta if False.
     optimizer : keras.optimizer instance [optional]
         Optimizer to be used in the gradient descent. Default is Adam with
         fixed learning rate equal to 1e-3.
@@ -100,7 +100,7 @@ class DeepONet:
         self.optimizer   = optimizer
         self.save_freq   = save_freq
         self.activation  = activation
-        self.adaptive  = activation
+        self.adaptive    = adaptive
 
         # Activation function
         if activation=='tanh':
@@ -117,9 +117,9 @@ class DeepONet:
             self.kinit  = 'lecun_normal'
 
         # Adaptive global
-        if   adaptive == 'adaptive_global':
+        if   adaptive == 'global':
             self.act_fn = AdaptiveAct(activation=self.act_fn)
-        elif adaptive == 'adaptive_layer':
+        elif adaptive == 'layer':
             self.act_f0 = self.act_fn
 
         # Inputs definition
@@ -142,7 +142,7 @@ class DeepONet:
 
         # Branch network
         for ii in range(self.depth_branch-1):
-            if activation=='adaptive_layer':
+            if adaptive=='layer':
                 self.act_fn = AdaptiveAct(activation=self.act_f0)
             hid_b = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
@@ -156,7 +156,7 @@ class DeepONet:
 
         # Trunk network
         for ii in range(self.depth_trunk):
-            if activation=='adaptive_layer':
+            if adaptive=='layer':
                 self.act_fn = AdaptiveAct(activation=self.act_f0)
             hid_t = keras.layers.Dense(self.width,
                                        kernel_regularizer=self.regu,
@@ -313,7 +313,7 @@ class DeepONet:
                     self.print_status(ep, [loss.numpy()], verbose=verbose)
 
                 # Print adaptive weights evol
-                if self.activation=='adaptive_layer':
+                if self.adaptive=='layer':
                     adps = [v.numpy()[0]
                             for v in self.model.trainable_variables
                             if 'adaptive' in v.name]
