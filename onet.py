@@ -506,9 +506,11 @@ def proto_wrapper_with_weights(branch_sensors):
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 def load_dataset(filepaths, branch_sensors, batch_size,
                  use_weights=True,
+                 preads=1,
                  shuffle_buffer=0):
     # Read records
-    dataset = tf.data.TFRecordDataset(filepaths)
+    dataset = tf.data.TFRecordDataset(filepaths,
+                                      num_parallel_reads=preads)
 
     # Disable order
     ignore_order = tf.data.Options()
