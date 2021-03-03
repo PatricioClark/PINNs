@@ -30,7 +30,7 @@ class PhysicsInformedNN:
     "Understanding and mitigating gradient pathologies in physics-informed
     neural networks" by Wang, Teng & Perdikaris (2020) (alpha option in
     training) or "When and why PINNs fail to train: A neural tangent kernel
-    perspective" by Wang, Yu & Perdikaris (2020) (nkt_balance option in
+    perspective" by Wang, Yu & Perdikaris (2020) (ntk_balance option in
     training).
 
     A few definitions before proceeding to the initialization parameters:
@@ -243,7 +243,8 @@ class PhysicsInformedNN:
               lambda_data=1.0,
               lambda_phys=1.0,
               alpha=0.0,
-              nkt_balance=False,
+              ntk_balance=False,
+              ntk_freq=10,
               flags=None,
               rnd_order_training=True,
               verbose=False,
@@ -287,12 +288,17 @@ class PhysicsInformedNN:
         alpha : float [optional]
             If non-zero, performs adaptive balance of the physics and data part
             of the loss functions. See comment above for reference. Cannot be
-            set if "nkt_balance" is also set. Default is
-            zero.
-        nkt_balance : bool [optional]
+            set if "ntk_balance" is also set. Default is zero.
+        ntk_balance : bool [optional]
             If True, performs adaptive balance of the physics and data part
-            of the loss functions based on NKT theory. See comment above for
-            reference. Cannot be set if "alpha" is also set. Default is False.
+            of the loss functions based on NTK theory every ntk_freq steps. See
+            comment above for reference. Cannot be set if "alpha" is also set
+            or is the PINN is defined in inverse mode. Default is False.
+        ntk_freq : int [optional]
+            Frequency, in batch iterations, for which the ntk_balance is
+            updated. Note that the values of bal_data and bal_phys are preseved
+            when restoring a network, so updates can be stopped by turning off
+            ntk_balance. Default is 10.
         flags: ndarray of ints [optional]
             If supplied, different flags will be used to group different
             points, and then each batch will be formed by picking points from
@@ -378,7 +384,8 @@ class PhysicsInformedNN:
                                                    bal_data,
                                                    bal_phys,
                                                    alpha,
-                                                   nkt_balance,
+                                                   ntk_balance,
+                                                   ntk_freq,
                                                    ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
@@ -392,7 +399,7 @@ class PhysicsInformedNN:
                                   loss_phys,
                                   inv_outputs,
                                   alpha,
-                                  nkt_balance,
+                                  ntk_balance,
                                   verbose=verbose)
 
             # Perform validation check
@@ -409,7 +416,7 @@ class PhysicsInformedNN:
     @tf.function
     def training_step(self, X_batch, Y_batch,
                       pde, lambda_data, lambda_phys,
-                      data_mask, bal_data, bal_phys, alpha, nkt_balance, ba):
+                      data_mask, bal_data, bal_phys, alpha, ntk_balance, ntk_freq, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(X_batch, training=True)
@@ -435,6 +442,7 @@ class PhysicsInformedNN:
                          lambda_phys*tf.square(eq))
                          for eq in equations]
             loss_phys = tf.add_n(loss_eqs)
+            equations = tf.convert_to_tensor(equations)
 
             # Total loss function
             loss = loss_data + loss_phys
@@ -450,12 +458,31 @@ class PhysicsInformedNN:
                     self.model.trainable_variables,
                     unconnected_gradients=tf.UnconnectedGradients.ZERO)
 
+        # NTK theory dynamic balance
+        if ntk_balance and ba%ntk_freq==0:
+            if self.inverse:
+                raise ValueError("ntk_balance has not been implemented for the"
+                                 " inverse case")
+            g_out = tape.jacobian(Y_pred,
+                    self.model.trainable_variables,
+                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+            g_eqs = tape.jacobian(equations,
+                    self.model.trainable_variables,
+                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+
+            tr_kuu = get_tr_k(g_out)
+            tr_krr = get_tr_k(g_eqs)
+            tr_k   = tr_kuu + tr_krr
+
+            bal_data = tr_k/tr_kuu
+            bal_phys = tr_k/tr_krr
+
         # Delete tape
         del tape
 
-        # Check that both alpha and nkt_balance are True
-        if alpha and nkt_balance:
-            raise ValueError("Both alpha and nkt_balance cannot have True"
+        # Check that both alpha and ntk_balance are True
+        if alpha and ntk_balance:
+            raise ValueError("Both alpha and ntk_balance cannot have True"
                              " values. Choose one, please.")
 
         # alpha-based dynamic balance
@@ -464,16 +491,6 @@ class PhysicsInformedNN:
             mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
             lhat = mean_grad_phys/mean_grad_data
             bal_data = (1.0-alpha)*bal_data + alpha*lhat
-
-        # NKT theory dynamic balance
-        if nkt_balance:
-            tr_kuu = get_tr_k(gradients_data)
-            tr_krr = get_tr_k(gradients_phys)
-
-            tr_k   = tr_kuu + tr_krr
-
-            bal_data = tr_k/tr_kuu
-            bal_phys = tr_k/tr_krr
 
         # Apply gradients
         gradients = [bal_data*g_data + bal_phys*g_phys
@@ -486,7 +503,7 @@ class PhysicsInformedNN:
                 bal_data, bal_phys)
 
     def print_status(self, ep, lu, lf,
-                     inv_outputs, alpha, nkt_balance, verbose=False):
+                     inv_outputs, alpha, ntk_balance, verbose=False):
         """ Print status function """
 
         # Loss functions
@@ -512,8 +529,8 @@ class PhysicsInformedNN:
                   file=output_file)
             output_file.close()
 
-        # Balance lambda with NKT
-        if nkt_balance:
+        # Balance lambda with NTK
+        if ntk_balance:
             output_file = open(self.dest + 'balance.dat', 'a')
             print(ep, self.bal_data.numpy(), self.bal_phys.numpy(),
                   file=output_file)
