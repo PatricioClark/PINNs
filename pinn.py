@@ -21,7 +21,7 @@ class PhysicsInformedNN:
 
     This implementation assumes that both args and data are normalized.
 
-    The instantiated model is soted in self.model and it takes coords as inputs
+    The instantiated model is stored in self.model and it takes coords as inputs
     and outputs a list where the first contains the learned fields and the rest
     of the entries contains the different learned parameters when running an
     inverse PINN or a dummy output that should be disregarded when not.
@@ -72,6 +72,11 @@ class PhysicsInformedNN:
         tuple indicating which arguments the parameter depends on, and the
         second a list with the shape of the NN to be used to model the hidden
         parameter.
+    aux_model : tf.keras.Model [optional]
+        Option to add an auxiliary model as output. If None a dummy constant
+        output is added to the DeepONet. The aux_model is not trained. Default is None.
+    aux_coords : list [optional]
+        If using an aux_model, specify which variables of the trunk input are used for it.
     restore : bool [optional]
         If True, it checks if a checkpoint exists in dest. If a checkpoint
         exists it restores the modelfrom there. Default is True.
@@ -87,6 +92,8 @@ class PhysicsInformedNN:
                  norm_out=False,
                  eq_params=[],
                  inverse=False,
+                 aux_model=None,
+                 aux_coords=None,
                  restore=True):
 
         # Numbers and dimensions
@@ -159,8 +166,18 @@ class PhysicsInformedNN:
             dummy = keras.layers.Dense(1, use_bias=False)(cte)
             self.inv_outputs = [dummy]
 
+        # Auxiliary network
+        if aux_model is not None:
+            aux_model.trainable = False
+            aux_coords = [coords[:,ii:ii+1] for ii in aux_coords]
+            aux_coords = keras.layers.concatenate(aux_coords)
+            aux_out    = [aux_model(aux_coords, training=False)[0]]
+        else:
+            cte     = keras.layers.Lambda(lambda x: 0*x[:,0:1]+1)(coords)
+            aux_out = [keras.layers.Dense(1, use_bias=False)(cte)]
+
         # Create model
-        model = keras.Model(inputs=coords, outputs=[fields]+self.inv_outputs)
+        model = keras.Model(inputs=coords, outputs=[fields] + self.inv_output + aux_out)
         self.model = model
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
@@ -421,7 +438,7 @@ class PhysicsInformedNN:
             # Data part
             output = self.model(X_batch, training=True)
             Y_pred = output[0]
-            p_pred = output[1:]
+            p_pred = output[1:-1]
             aux = [tf.reduce_mean(
                    lambda_data*tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
                    for ii in range(self.dout)
