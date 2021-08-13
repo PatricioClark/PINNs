@@ -165,6 +165,7 @@ class PhysicsInformedNN:
                 ymax = norm_out[1]
                 out_norm = lambda x: 0.5*(x+1)*(ymax-ymin) + ymin
             fields = keras.layers.Lambda(out_norm)(fields)
+        outputs = [fields]
 
         # Check if inverse problem
         if inverse:
@@ -173,19 +174,21 @@ class PhysicsInformedNN:
             cte   = keras.layers.Lambda(lambda x: 0*x[:,0:1]+1)(coords)
             dummy = keras.layers.Dense(1, use_bias=False)(cte)
             self.inv_outputs = [dummy]
+        outputs = outputs + self.inv_outputs
 
         # Auxiliary network
         if aux_model is not None:
+            self.auxm_idx = -1
             aux_model.trainable = False
             aux_coords = [coords[:,ii:ii+1] for ii in aux_coords]
             aux_coords = keras.layers.concatenate(aux_coords)
-            aux_out    = [aux_model(aux_coords, training=False)[0]]
+            aux_out    = aux_model(aux_coords, training=False)[0]
+            outputs    = outputs + [aux_out]
         else:
-            cte     = keras.layers.Lambda(lambda x: 0*x[:,0:1]+1)(coords)
-            aux_out = [keras.layers.Dense(1, use_bias=False)(cte)]
+            self.auxm_idx = None
 
         # Create model
-        model = keras.Model(inputs=coords, outputs=[fields] + self.inv_outputs + aux_out)
+        model = keras.Model(inputs=coords, outputs=outputs)
         self.model = model
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
@@ -446,7 +449,7 @@ class PhysicsInformedNN:
             # Data part
             output = self.model(X_batch, training=True)
             Y_pred = output[0]
-            p_pred = output[1:-1]
+            p_pred = output[1:self.auxm_idx]
             aux = [tf.reduce_mean(
                    lambda_data*tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
                    for ii in range(self.dout)
