@@ -90,6 +90,7 @@ class PhysicsInformedNN:
                  optimizer=keras.optimizers.Adam(lr=5e-4),
                  norm_in=False,
                  norm_out=False,
+                 norm_out_type='z-score',
                  eq_params=[],
                  inverse=False,
                  aux_model=None,
@@ -121,6 +122,8 @@ class PhysicsInformedNN:
             self.act_fn = keras.activations.tanh
         elif activation=='relu':
             self.act_fn = keras.activations.relu
+        elif activation=='elu':
+            self.act_fn = keras.activations.elu
         elif activation == 'adaptive_global':
             self.act_fn = AdaptiveAct()
         elif activation == 'adaptive_layer':
@@ -153,10 +156,15 @@ class PhysicsInformedNN:
 
         # Normalize output
         if norm_out:
-            mm = norm_out[0]
-            sg = norm_out[1]
-            zscore = lambda x: sg*x + mm 
-            fields = keras.layers.Lambda(zscore)(fields)
+            if norm_out_type=='z_score':
+                mm = norm_out[0]
+                sg = norm_out[1]
+                out_norm = lambda x: sg*x + mm 
+            elif norm_out_type=='min_max':
+                ymin = norm_out[0]
+                ymax = norm_out[1]
+                out_norm = lambda x: 0.5*(x+1)*(ymax-ymin) + ymin
+            fields = keras.layers.Lambda(out_norm)(fields)
 
         # Check if inverse problem
         if inverse:
@@ -177,7 +185,7 @@ class PhysicsInformedNN:
             aux_out = [keras.layers.Dense(1, use_bias=False)(cte)]
 
         # Create model
-        model = keras.Model(inputs=coords, outputs=[fields] + self.inv_output + aux_out)
+        model = keras.Model(inputs=coords, outputs=[fields] + self.inv_outputs + aux_out)
         self.model = model
         self.num_trainable_vars = np.sum([np.prod(v.shape)
                                           for v in self.model.trainable_variables])
