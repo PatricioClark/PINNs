@@ -270,7 +270,9 @@ class PhysicsInformedNN:
                 for ii in range(self.inverse[pp][1]):
                     hidden = keras.layers.Dense(self.inverse[pp][2],
                                                 kernel_initializer=self.kinit)(hidden)
-                    if activation=='siren':
+                    if self.activation=='siren':
+                        width = self.inverse[pp][2]
+                        omega0 = 30.0
                         self.kinit = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
                                                                           tf.sqrt(6.0/width)/omega0)
                     if self.activation=='adaptive_layer':
