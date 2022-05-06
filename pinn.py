@@ -120,13 +120,19 @@ class PhysicsInformedNN:
         self.adaptive = False
         if activation=='tanh':
             self.act_fn = keras.activations.tanh
+            self.kinit  = 'glorot_normal'
         elif activation=='relu':
             self.act_fn = keras.activations.relu
         elif activation=='elu':
             self.act_fn = keras.activations.elu
-        elif activation == 'adaptive_global':
+            self.kinit  = 'glorot_normal'
+        elif activation=='siren':
+            self.act_fn = SirenAct()
+            self.kinit  = tf.keras.initializers.RandomUniform(-1.0/self.din, 1.0/self.din)
+            omega0      = 30.0
+        elif activation=='adaptive_global':
             self.act_fn = AdaptiveAct()
-        elif activation == 'adaptive_layer':
+        elif activation=='adaptive_layer':
             self.adaptive = True
 
         # Input definition
@@ -144,7 +150,11 @@ class PhysicsInformedNN:
 
         # Hidden layers
         for ii in range(depth):
-            hidden = keras.layers.Dense(width)(hidden)
+            hidden = keras.layers.Dense(width,
+                                        kernel_initializer=self.kinit)(hidden)
+            if activation=='siren':
+                self.kinit = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
+                                                                  tf.sqrt(6.0/width)/omega0)
             if activation=='adaptive_layer':
                 self.act_fn = AdaptiveAct()
             hidden = self.act_fn(hidden)
@@ -152,7 +162,9 @@ class PhysicsInformedNN:
                 hidden = keras.layers.Dropout(p_drop)(hidden)
 
         # Output definition
-        fields = keras.layers.Dense(self.dout, name='fields')(hidden)
+        fields = keras.layers.Dense(self.dout,
+                                    kernel_initializer=self.kinit,
+                                    name='fields')(hidden)
 
         # Normalize output
         if norm_out:
@@ -253,8 +265,14 @@ class PhysicsInformedNN:
                 if self.norm_in:
                     inps = keras.layers.Lambda(self.norm)(inps)
                 hidden = inps
+                if self.activation=='siren':
+                    self.kinit = tf.keras.initializers.RandomUniform(-1.0/self.din, 1.0/self.din)
                 for ii in range(self.inverse[pp][1]):
-                    hidden = keras.layers.Dense(self.inverse[pp][2])(hidden)
+                    hidden = keras.layers.Dense(self.inverse[pp][2],
+                                                kernel_initializer=self.kinit)(hidden)
+                    if activation=='siren':
+                        self.kinit = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
+                                                                          tf.sqrt(6.0/width)/omega0)
                     if self.activation=='adaptive_layer':
                         self.act_fn = AdaptiveAct()
                     hidden = self.act_fn(hidden)
@@ -702,6 +720,22 @@ class AdaptiveAct(keras.layers.Layer):
     def call(self, X):
         aux = tf.multiply(10.0,  self.a)
         return self.activation(tf.multiply(aux, X))
+
+    def compute_output_shape(self, batch_input_shape):
+        return batch_input_shape
+
+class SirenAct(keras.layers.Layer):
+    """ Siren activation function """
+    def __init__(self, activation=tf.math.sin, omega0=30.0, **kwargs):
+        super().__init__(**kwargs)
+        self.activation = activation
+        self.omega0     = omega0
+
+    def build(self, batch_input_shape):
+        super().build(batch_input_shape)
+
+    def call(self, X):
+        return self.activation(tf.multiply(self.omega0, X))
 
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
