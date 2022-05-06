@@ -49,6 +49,8 @@ class PhysicsInformedNN:
         Path for output files.
     activation : str [optional]
         Activation function to be used. Default is 'tanh'.
+    resnet : bool [optional]
+        If True turn PINN into a residual network with two layers per block.
     optimizer : keras.optimizer instance [optional]
         Optimizer to be used in the gradient descent. Default is Adam with
         fixed learning rate equal to 5e-4.
@@ -87,6 +89,7 @@ class PhysicsInformedNN:
                  dest='./',
                  activation='tanh',
                  p_drop=0.0,
+                 resnet=False,
                  optimizer=keras.optimizers.Adam(lr=5e-4),
                  norm_in=False,
                  norm_out=False,
@@ -149,17 +152,28 @@ class PhysicsInformedNN:
             hidden  = coords
 
         # Hidden layers
+        first_layer = True
         for ii in range(depth):
-            hidden = keras.layers.Dense(width,
-                                        kernel_initializer=self.kinit)(hidden)
+            new_layer = keras.layers.Dense(width,
+                                           kernel_initializer=self.kinit)(hidden)
             if activation=='siren':
                 self.kinit = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
                                                                   tf.sqrt(6.0/width)/omega0)
             if activation=='adaptive_layer':
                 self.act_fn = AdaptiveAct()
-            hidden = self.act_fn(hidden)
+            new_layer   = self.act_fn(new_layer)
+            first_layer = False
             if p_drop:
-                hidden = keras.layers.Dropout(p_drop)(hidden)
+                new_layer = keras.layers.Dropout(p_drop)(new_layer)
+
+            if resnet and not first_layer:
+                aux_layer = keras.layers.Dense(width,
+                                               kernel_initializer=self.kinit)(new_layer)
+                aux_layer = self.act_fn(aux_layer)
+
+                hidden = 0.5*(hidden + aux_layer)
+            else:
+                hidden = new_layer
 
         # Output definition
         fields = keras.layers.Dense(self.dout,
