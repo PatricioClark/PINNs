@@ -184,7 +184,7 @@ class PhysicsInformedNN:
 
         # Normalize output
         if norm_out:
-            if norm_out_type=='z_score':
+            if norm_out_type=='z-score':
                 mm = norm_out[0]
                 sg = norm_out[1]
                 out_norm = lambda x: sg*x + mm 
@@ -418,6 +418,11 @@ class PhysicsInformedNN:
         flags     = np.array(flags)
         flag_idxs = [np.where(flags==f)[0] for f in np.unique(flags)]
 
+        num_flags = len(flag_idxs)
+        if num_flags > batches:
+            batches = num_flags
+            batch_size = len_data//num_flags
+
         # Cast balance
         bal_data = tf.constant(self.bal_data.numpy(), dtype='float32')
         bal_phys = tf.constant(self.bal_phys.numpy(), dtype='float32')
@@ -436,14 +441,14 @@ class PhysicsInformedNN:
                                           lambda_data,
                                           lambda_phys,
                                           ba,
-                                          batches,
+                                          batch_size,
                                           flag_idxs,
                                           random=rnd_order_training)
                 X_batch = tf.convert_to_tensor(X_batch)
                 Y_batch = tf.convert_to_tensor(Y_batch)
                 l_data = tf.constant(l_data, dtype='float32')
                 l_phys = tf.constant(l_phys, dtype='float32')
-                ba_counter = tf.constant(ba)
+                ba_counter  = tf.constant(ba)
 
                 if timer: t0 = time.time()
                 (loss_data,
@@ -501,6 +506,14 @@ class PhysicsInformedNN:
                    for ii in range(self.dout)
                    if data_mask[ii]]
             loss_data = tf.add_n(aux)
+
+            # Statistics part
+            # aux1 = tf.square(tf.reduce_mean(Y_pred[:,0]))
+            # aux2 = tf.square(tf.sqrt(tf.reduce_mean(Y_pred[:,0]**2) - tf.reduce_mean(Y_pred[:,0])**2) - 0.5)
+            # aux3 = tf.square(
+            #         tf.abs(tf.reduce_mean((Y_pred[:,0]-tf.reduce_mean(Y_pred[:,0]))**3.0))**(1.0/3.0)
+            #         - 0.25)
+            # loss_data = loss_data + aux1 + aux2 + aux3
 
             # Grab inverse coefs
             if self.inverse:
@@ -719,7 +732,15 @@ def get_tr_k(grads):
     total_sum       = tf.add_n(sum_over_layers)
     return total_sum
 
-def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
+def get_mini_batch(X, Y, ld, lf, ba, batch_size, flag_idxs, random=True):
+    ''' New separted version for this problem '''
+    which = np.random.randint(np.shape(flag_idxs)[0])
+    fi    = flag_idxs[which]
+    idxs  = np.random.choice(fi, batch_size)
+    return X[idxs], Y[idxs], ld[idxs], lf[idxs]
+
+def old_get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
+    ''' Normal version '''
     idxs = []
     for fi in flag_idxs:
         if random:
