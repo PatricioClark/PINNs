@@ -111,6 +111,7 @@ class PhysicsInformedNN:
         self.dest        = dest
         self.eq_params   = eq_params
         self.eval_params = copy.copy(eq_params)
+        self.resnet      = resnet
         self.p_drop      = p_drop
         self.inverse     = inverse
         self.restore     = restore
@@ -162,7 +163,6 @@ class PhysicsInformedNN:
             if activation=='adaptive_layer':
                 self.act_fn = AdaptiveAct()
             new_layer   = self.act_fn(new_layer)
-            first_layer = False
             if p_drop:
                 new_layer = keras.layers.Dropout(p_drop)(new_layer)
 
@@ -174,6 +174,8 @@ class PhysicsInformedNN:
                 hidden = 0.5*(hidden + aux_layer)
             else:
                 hidden = new_layer
+
+            first_layer = False
 
         # Output definition
         fields = keras.layers.Dense(self.dout,
@@ -281,8 +283,9 @@ class PhysicsInformedNN:
                 hidden = inps
                 if self.activation=='siren':
                     self.kinit = tf.keras.initializers.RandomUniform(-1.0/self.din, 1.0/self.din)
+                first_layer = True
                 for ii in range(self.inverse[pp][1]):
-                    hidden = keras.layers.Dense(self.inverse[pp][2],
+                    new_layer = keras.layers.Dense(self.inverse[pp][2],
                                                 kernel_initializer=self.kinit)(hidden)
                     if self.activation=='siren':
                         width = self.inverse[pp][2]
@@ -291,9 +294,18 @@ class PhysicsInformedNN:
                                                                           tf.sqrt(6.0/width)/omega0)
                     if self.activation=='adaptive_layer':
                         self.act_fn = AdaptiveAct()
-                    hidden = self.act_fn(hidden)
+                    new_layer = self.act_fn(new_layer)
                     if self.p_drop:
-                        hidden = keras.layers.Dropout(self.p_drop)(hidden)
+                        new_layer = keras.layers.Dropout(self.p_drop)(new_layer)
+                    if self.resnet and not first_layer:
+                        aux_layer = keras.layers.Dense(width,
+                                                       kernel_initializer=self.kinit)(new_layer)
+                        aux_layer = self.act_fn(aux_layer)
+
+                        hidden = 0.5*(hidden + aux_layer)
+                    else:
+                        hidden = new_layer
+                    first_layer = False
                 func = keras.layers.Dense(1)(hidden)
                 inv_outputs.append(func)
         return inv_outputs
