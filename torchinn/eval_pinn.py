@@ -10,12 +10,19 @@ from pytorch_lightning.loggers import CSVLogger
 
 import sys
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from pinn import PhysicsInformedNN, nn_grad
 
 # Load PINN (pde is not loaded by default, but can be passed)
 PINN = PhysicsInformedNN.load_from_checkpoint('ckpt/last.ckpt')
+
+# Loss
+out = pd.read_csv('metrics.csv')
+plt.figure(0)
+plt.plot(out['epoch'], out['data_loss'])
+plt.plot(out['epoch'], out['phys_loss'])
 
 # inspect results
 print(PINN.inv_ctes[0])

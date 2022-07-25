@@ -42,6 +42,8 @@ def pde(self, out, x):
 
     eq3 = dgdt[:,0] - self.inv_ctes[1]*x[:,0]**2
     eq4 = dgdt[:,1] - self.inv_ctes[0]*x[:,1]
+    # eq3 = dgdt[:,0] - 3*x[:,0]**2
+    # eq4 = dgdt[:,1] - 2*x[:,1]
 
     return [eq1, eq2, eq3, eq4]
 PINN = PhysicsInformedNN(2,2,2,64, pde=pde, inv_ctes=[1.0, 1.0], inv_fields=[(1,1,2,32)], lr=1e-5)
@@ -55,7 +57,7 @@ checkpoint_callback = ModelCheckpoint(dirpath='ckpt',
                                       )
 logger = CSVLogger(save_dir='.',name='')#, version='')
 # Puedo jugar con los loggers y checkpoints, esta bueno para ver en cliente web desde un servidor
-trainer = pl.Trainer(max_epochs=150,
+trainer = pl.Trainer(max_epochs=100,
                      enable_progress_bar=False,
                      callbacks=[checkpoint_callback],
                      logger=[logger],
