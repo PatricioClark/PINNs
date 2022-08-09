@@ -10,13 +10,7 @@ from run_pinn import TestPINN
 # Load PINN
 PINN = TestPINN.load_from_checkpoint('ckpt/last.ckpt')
 
-# Loss
-# out = pd.read_csv('metrics.csv')
-# plt.figure(0)
-# plt.plot(out['epoch'], out['data_loss'])
-# plt.plot(out['epoch'], out['phys_loss'])
-
-# inspect results
+# Inspect results
 print(PINN.inv_ctes[0])
 print(PINN.inv_ctes[1])
 
@@ -75,7 +69,7 @@ xt = xt.clone().detach().requires_grad_(True)
 zt = PINN.main_net(xt)
 z1 = zt[:, 0]
 z2 = zt[:, 1]
-inv_field = PINN.inv_fields[0](xt[:, 1:2]).detach().numpy()
+inv_field = PINN.inv_fields[0](xt).detach().numpy()[:, 0]
 dt1 = torch.autograd.grad(z1, [xt],
                           grad_outputs=torch.ones_like(z1),
                           create_graph=True)[0]

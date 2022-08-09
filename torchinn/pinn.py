@@ -17,7 +17,7 @@ class PhysicsInformedNN(pl.LightningModule):
     # pylint: disable=too-many-ancestors
 
     def __init__(self,
-                 nn_args,
+                 nn_dims,
                  nn_kwargs=None,
                  data_mask=None,
                  base_nn='mlp',
@@ -29,7 +29,7 @@ class PhysicsInformedNN(pl.LightningModule):
         super().__init__()
 
         # Params
-        self.nn_args = nn_args
+        self.nn_dims = nn_dims
         self.base_nn = base_nn
         self.lr = lr
 
@@ -39,7 +39,7 @@ class PhysicsInformedNN(pl.LightningModule):
         # Main network
         if nn_kwargs is None:
             nn_kwargs = {}
-        self.main_net = BaseNN(*nn_args, **nn_kwargs)
+        self.main_net = BaseNN(nn_dims, **nn_kwargs)
 
         # Datamask
         if data_mask is None:
@@ -53,22 +53,22 @@ class PhysicsInformedNN(pl.LightningModule):
             cte_list        = [nn.Parameter(torch.tensor(k)) for k in inv_ctes]
             self.inv_ctes   = nn.ParameterList(cte_list)
         if inv_fields is not None:
-            field_list      = [BaseNN(*inv_args, **inv_kwargs)
+            field_list      = [BaseNN(inv_args, **inv_kwargs)
                                for inv_args, inv_kwargs in inv_fields]
             self.inv_fields = nn.ModuleList(field_list)
 
         # Save hyperparams
         self.save_hyperparameters()
 
-    def pde(self, z, x):
+    def pde(self, out, coords):
         '''pde to enforce'''
         # pylint: disable=unused-argument
         return [torch.tensor([0.0])]
 
-    def forward(self, x):
+    def forward(self, coords):
         '''forward pass'''
         # pylint: disable=arguments-differ
-        out = self.main_net(x)
+        out = self.main_net(coords)
         return out
 
     def configure_optimizers(self):

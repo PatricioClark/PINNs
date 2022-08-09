@@ -1,17 +1,26 @@
-# python 3
+""" Different NN architectures """
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 # Basic MLP class
 class MLP(nn.Module):
-    def __init__(self, din, dout, depth, width, activation=nn.ELU, mask=None):
+    """Basic MLP"""
+    def __init__(self,
+                 dims,
+                 activation=nn.ELU,
+                 mask=None):
         """ Basic MLP """
         super().__init__()
 
-        self.din  = din
-        self.dout = dout
+        # Input and output sizes
+        self.din  = dims[0]
+        self.dout = dims[1]
+
+        # Depth and width of network
+        depth = dims[2]
+        width = dims[3]
 
         net = []
 
@@ -22,7 +31,8 @@ class MLP(nn.Module):
             self.mask = torch.tensor(mask)
 
         # Input layer
-        net.append(nn.Linear(din, width))
+        net.append(nn.Linear(self.din, width))
+        net.append(activation())
 
         # Hidden layers
         for _ in range(depth):
@@ -30,12 +40,13 @@ class MLP(nn.Module):
             net.append(activation())
 
         # Output layer
-        net.append(nn.Linear(width, dout))
+        net.append(nn.Linear(width, self.dout))
 
         # Create model
         self.model = nn.Sequential(*net)
 
     def forward(self, x):
+        """Forward pass"""
         return self.model(self.mask*x)
 
 # class ActivatedLayer(nn.Module):
