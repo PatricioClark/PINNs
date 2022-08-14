@@ -3,12 +3,19 @@
 import torch
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from run_pinn import TestPINN
 
 # Load PINN
 PINN = TestPINN.load_from_checkpoint('ckpt/last.ckpt')
+
+# Plot loss
+out = pd.read_csv('logs/version_9/metrics.csv')
+out.set_index('epoch', inplace=True)
+plt.figure(0)
+out['data_loss'].plot()
 
 # Inspect results
 print(PINN.inv_ctes[0])

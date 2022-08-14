@@ -7,7 +7,7 @@ import torch
 from torch import nn
 import pytorch_lightning as pl
 
-from net_archs import MLP
+from net_archs import MLP, SirenNet
 
 
 # PINN module
@@ -35,6 +35,8 @@ class PhysicsInformedNN(pl.LightningModule):
 
         if base_nn == 'mlp':
             BaseNN = MLP
+        elif base_nn == 'siren':
+            BaseNN = SirenNet
 
         # Main network
         if nn_kwargs is None:
