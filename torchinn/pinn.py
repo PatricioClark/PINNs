@@ -19,6 +19,7 @@ class PhysicsInformedNN(pl.LightningModule):
     def __init__(self,
                  nn_dims,
                  nn_kwargs=None,
+                 lphys=1.0,
                  data_mask=None,
                  base_nn='mlp',
                  eq_params=None,
@@ -32,6 +33,12 @@ class PhysicsInformedNN(pl.LightningModule):
         self.nn_dims = nn_dims
         self.base_nn = base_nn
         self.lr = lr
+
+        # Physics hyperparams
+        if isinstance(lphys, dict):
+            self.lphys = lphys
+        else:
+            self.lphys = {'value': lphys, 'rule': 'constant'}
 
         if base_nn == 'mlp':
             BaseNN = MLP
@@ -74,27 +81,66 @@ class PhysicsInformedNN(pl.LightningModule):
         return out
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        return optimizer
+        opt = torch.optim.Adam(self.parameters(), lr=self.lr)
+        return opt
 
     def training_step(self, batch, batch_idx):
         '''forward pass'''
         # pylint: disable=arguments-differ
-        # pylint: disable=unused-argument
+
+        # Evaluate model
         x, y = batch
         x = x.clone().detach().requires_grad_(True)
         z = self.main_net(x)
+
+        # Data part
         dy = self.data_mask*y
         dz = self.data_mask*z
         data_loss = nn.functional.mse_loss(dy, dz)
         self.log("data_loss", data_loss)
 
+        # Physics part
         pde = self.pde(z, x)
         phys_loss = torch.stack([eq**2 for eq in pde]).mean()
         self.log("phys_loss", phys_loss)
 
-        total_loss = data_loss + phys_loss
-        return total_loss
+        # Update lphys
+        self.phys_balance(data_loss,
+                          phys_loss,
+                          batch_idx)
+
+        return data_loss + self.lphys['value']*phys_loss
+
+    def phys_balance(self, data_loss, phys_loss, batch_idx):
+        '''Updates self.lphys, the hyperparamter balancing the data and
+        physics parts.
+
+        If one is interested in just saving the gradients, it is also possible
+        to use the on_before_optimizer_step hook
+        '''
+        if self.lphys['rule'] == 'adam-like' and batch_idx % 10 == 0:
+            grad_data = torch.autograd.grad(data_loss,
+                                            self.parameters(),
+                                            create_graph=True,
+                                            retain_graph=True,
+                                            allow_unused=True)
+            grad_phys = torch.autograd.grad(phys_loss,
+                                            self.parameters(),
+                                            create_graph=True,
+                                            retain_graph=True,
+                                            allow_unused=True)
+            sum_data = torch.stack([gd.abs().sum()
+                                    for gd in grad_data if gd is not None])
+            sum_data = sum_data.sum().detach()
+            sum_phys = torch.stack([gp.abs().sum()
+                                    for gp in grad_phys if gp is not None])
+            sum_phys = sum_phys.sum().detach()
+
+            self.lphys['value'] = (0.9*self.lphys['value'] +
+                                   0.1*(sum_data/sum_phys))
+
+        elif self.lphys['rule'] == 'constant':
+            pass
 
 
 def nn_grad(out, x):

@@ -58,6 +58,7 @@ def main():
     # Instantiate model
     PINN = TestPINN([2, 2, 1, 64],
                     inv_ctes=[1.0, 1.0],
+                    lphys={'value': 1.0, 'rule': 'adam-like'},
                     inv_fields=[([2, 1, 1, 32], {'mask': [0, 1]})],
                     lr=1e-3)
 
@@ -69,7 +70,7 @@ def main():
                                           mode='max',
                                           )
     logger = CSVLogger(save_dir='logs', name='')
-    trainer = pl.Trainer(max_epochs=200,
+    trainer = pl.Trainer(max_epochs=50,
                          enable_progress_bar=False,
                          callbacks=[checkpoint_callback],
                          logger=[logger],

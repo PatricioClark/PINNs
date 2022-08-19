@@ -12,10 +12,10 @@ from run_pinn import TestPINN
 PINN = TestPINN.load_from_checkpoint('ckpt/last.ckpt')
 
 # Plot loss
-out = pd.read_csv('logs/version_9/metrics.csv')
-out.set_index('epoch', inplace=True)
-plt.figure(0)
-out['data_loss'].plot()
+# out = pd.read_csv('logs/version_9/metrics.csv')
+# out.set_index('epoch', inplace=True)
+# plt.figure(0)
+# out['data_loss'].plot()
 
 # Inspect results
 print(PINN.inv_ctes[0])
