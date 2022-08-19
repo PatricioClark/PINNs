@@ -13,8 +13,6 @@ from net_archs import MLP, SirenNet
 # PINN module
 class PhysicsInformedNN(pl.LightningModule):
     '''Physics Informed NN class'''
-    # pylint: disable=too-many-instance-attributes
-    # pylint: disable=too-many-ancestors
 
     def __init__(self,
                  nn_dims,
@@ -26,7 +24,6 @@ class PhysicsInformedNN(pl.LightningModule):
                  inv_ctes=None,
                  inv_fields=None,
                  lr=1e-3):
-        # pylint: disable=too-many-arguments
         super().__init__()
 
         # Params
@@ -76,7 +73,6 @@ class PhysicsInformedNN(pl.LightningModule):
 
     def forward(self, coords):
         '''forward pass'''
-        # pylint: disable=arguments-differ
         out = self.main_net(coords)
         return out
 
@@ -86,7 +82,6 @@ class PhysicsInformedNN(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         '''forward pass'''
-        # pylint: disable=arguments-differ
 
         # Evaluate model
         x, y = batch

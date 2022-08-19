@@ -9,15 +9,13 @@ import numpy as np
 # Basic MLP class
 class MLP(nn.Module):
     """Basic MLP"""
-    def __init__(self,
-                 dims,
-                 activation=nn.ELU,
-                 mask=None):
+
+    def __init__(self, dims, activation=nn.ELU, mask=None):
         """ Basic MLP """
         super().__init__()
 
         # Input and output sizes
-        self.din  = dims[0]
+        self.din = dims[0]
         self.dout = dims[1]
 
         # Depth and width of network
@@ -49,19 +47,24 @@ class MLP(nn.Module):
 
     def forward(self, x):
         """Forward pass"""
-        return self.model(self.mask*x)
+        return self.model(self.mask * x)
+
 
 class SirenLayer(nn.Module):
-    def __init__(self, in_features, out_features,
+
+    def __init__(self,
+                 in_features,
+                 out_features,
                  omega_0,
-                 is_first=False, is_last=False):
+                 is_first=False,
+                 is_last=False):
         super().__init__()
-        self.omega_0    = omega_0
-        self.is_first   = is_first
-        self.is_last    = is_last
+        self.omega_0 = omega_0
+        self.is_first = is_first
+        self.is_last = is_last
 
         # Define activation function
-        self.act_fn = lambda x: torch.sin(self.omega_0*x)
+        self.act_fn = lambda x: torch.sin(self.omega_0 * x)
         if self.is_last:
             self.act_n = nn.Identity
 
@@ -72,28 +75,33 @@ class SirenLayer(nn.Module):
         self.init_weights()
 
     def init_weights(self):
+        '''Initialize weights'''
         with torch.no_grad():
             if self.is_first:
-                self.linear.weight.uniform_(-1 / self.in_features, 
-                                             1 / self.in_features)      
+                self.linear.weight.uniform_(-1 / self.in_features,
+                                            1 / self.in_features)
             else:
-                self.linear.weight.uniform_(-np.sqrt(6/self.in_features)/self.omega_0, 
-                                             np.sqrt(6/self.in_features)/self.omega_0)
+                self.linear.weight.uniform_(
+                    -np.sqrt(6 / self.in_features) / self.omega_0,
+                    np.sqrt(6 / self.in_features) / self.omega_0)
 
     def forward(self, x):
         return self.act_fn(self.linear(x))
 
+
 class SirenNet(nn.Module):
-    def __init__(self,
-                 dims,
-                 first_omega_0=1.0,
-                 hidden_omega_0=1.0,
-                 mask=None,
-                 ):
+
+    def __init__(
+        self,
+        dims,
+        first_omega_0=1.0,
+        hidden_omega_0=1.0,
+        mask=None,
+    ):
         super().__init__()
 
         # Input and output sizes
-        self.din  = dims[0]
+        self.din = dims[0]
         self.dout = dims[1]
 
         # Depth and width of network
@@ -117,9 +125,9 @@ class SirenNet(nn.Module):
 
         # Output layer
         net.append(SirenLayer(width, self.dout, hidden_omega_0, is_last=True))
-        
+
         # Create model
         self.model = nn.Sequential(*net)
-    
+
     def forward(self, x):
-        return self.model(self.mask*x)
+        return self.model(self.mask * x)

@@ -1,0 +1,9 @@
+[FORMAT]
+good-names=x,y,z,dx,dy,dz,lr,PINN
+
+[TYPECHECK]
+generated-member=np.*, torch.*
+
+[MESSAGES CONTROL]
+disable=too-many-instance-attributes,too-many-ancestors,too-many-arguments
+disable=arguments-differ
