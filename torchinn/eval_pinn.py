@@ -12,10 +12,13 @@ from run_pinn import TestPINN
 PINN = TestPINN.load_from_checkpoint('ckpt/last.ckpt')
 
 # Plot loss
-# out = pd.read_csv('logs/version_9/metrics.csv')
-# out.set_index('epoch', inplace=True)
-# plt.figure(0)
-# out['data_loss'].plot()
+out = pd.read_csv('logs/version_0/metrics.csv')
+out.set_index('epoch', inplace=True)
+plt.figure(0)
+out['data_loss'].plot(label='data')
+out['phys_loss'].plot(label='phys')
+plt.legend()
+plt.yscale('log')
 
 # Inspect results
 print(PINN.inv_ctes[0])
@@ -67,6 +70,7 @@ plt.figure(4)
 plt.clf()
 plt.plot(x1, dt2[:, 0])
 plt.plot(x1, 3 * x1**2, 'ro')
+plt.title(r'$\frac{\partial f_2}{\partial x_1}(x_1,0)$')
 
 # Evalute along x_1=0
 X = np.concatenate((zs, x2), 1)

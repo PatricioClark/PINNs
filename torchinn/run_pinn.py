@@ -36,7 +36,6 @@ train_loader  = data_utils.DataLoader(training_data,
 # Define pde and PINN
 class TestPINN(PhysicsInformedNN):
     '''Test PINN'''
-    # pylint: disable=too-many-ancestors
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

@@ -66,7 +66,7 @@ class SirenLayer(nn.Module):
         # Define activation function
         self.act_fn = lambda x: torch.sin(self.omega_0 * x)
         if self.is_last:
-            self.act_n = nn.Identity
+            self.act_fn = nn.Identity()
 
         self.in_features = in_features
         self.linear = nn.Linear(in_features, out_features)

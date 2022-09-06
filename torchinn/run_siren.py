@@ -36,7 +36,6 @@ train_loader  = data_utils.DataLoader(training_data,
 # Define pde and PINN
 class TestPINN(PhysicsInformedNN):
     '''Test PINN'''
-    # pylint: disable=too-many-ancestors
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -56,14 +55,17 @@ class TestPINN(PhysicsInformedNN):
 def main():
     """main train function"""
     # Instantiate model
-    momegas = {'mask': [0, 1], 'first_omega_0': 10.0, 'hidden_omega_0': 10.0}
-    omegas = {'first_omega_0': 10.0, 'hidden_omega_0': 10.0}
+    w0 = 5.0
+    w1 = 5.0
+    momegas = {'mask': [0, 1], 'first_omega_0': w0, 'hidden_omega_0': w1}
+    omegas = {'first_omega_0': w0, 'hidden_omega_0': w1}
     PINN = TestPINN([2, 2, 1, 64],
                     inv_ctes=[1.0, 1.0],
+                    lphys={'value': 1.0, 'rule': 'adam-like'},
                     inv_fields=[([2, 1, 1, 32], momegas)],
                     base_nn='siren',
                     nn_kwargs=omegas,
-                    lr=1e-5)
+                    lr=1e-4)
 
     # Create Trainer with checkpointing and logging
     checkpoint_callback = ModelCheckpoint(dirpath='ckpt',
@@ -73,7 +75,7 @@ def main():
                                           mode='max',
                                           )
     logger = CSVLogger(save_dir='logs', name='')
-    trainer = pl.Trainer(max_epochs=200,
+    trainer = pl.Trainer(max_epochs=100,
                          enable_progress_bar=False,
                          callbacks=[checkpoint_callback],
                          logger=[logger],
