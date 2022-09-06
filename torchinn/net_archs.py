@@ -10,7 +10,7 @@ import numpy as np
 class MLP(nn.Module):
     """Basic MLP"""
 
-    def __init__(self, dims, activation=nn.ELU, mask=None):
+    def __init__(self, dims, activation='elu', mask=None, **kwargs):
         """ Basic MLP """
         super().__init__()
 
@@ -31,16 +31,25 @@ class MLP(nn.Module):
             self.mask = torch.tensor(mask)
 
         # Input layer
-        net.append(nn.Linear(self.din, width))
-        net.append(activation())
+        net.append(ActivatedLayer(self.din,
+                                  width,
+                                  activation=activation,
+                                  is_first=True,
+                                  **kwargs))
 
         # Hidden layers
         for _ in range(depth):
-            net.append(nn.Linear(width, width))
-            net.append(activation())
+            net.append(ActivatedLayer(width,
+                                      width,
+                                      activation=activation,
+                                      **kwargs))
 
         # Output layer
-        net.append(nn.Linear(width, self.dout))
+        net.append(ActivatedLayer(width,
+                                  self.dout,
+                                  activation=activation,
+                                  is_last=True,
+                                  **kwargs))
 
         # Create model
         self.model = nn.Sequential(*net)
@@ -50,21 +59,29 @@ class MLP(nn.Module):
         return self.model(self.mask * x)
 
 
-class SirenLayer(nn.Module):
+class ActivatedLayer(nn.Module):
 
     def __init__(self,
                  in_features,
                  out_features,
-                 omega_0,
+                 activation='elu',
                  is_first=False,
-                 is_last=False):
+                 is_last=False,
+                 **kwargs):
         super().__init__()
-        self.omega_0 = omega_0
         self.is_first = is_first
-        self.is_last = is_last
+        self.is_last  = is_last
 
         # Define activation function
-        self.act_fn = lambda x: torch.sin(self.omega_0 * x)
+        if activation == 'elu':
+            self.act_fn = nn.functional.elu
+
+        elif activation == 'siren':
+            self.omega_0 = kwargs['hidden_omega_0']
+            if self.is_first:
+                self.omega_0 = kwargs['first_omega_0']
+            self.act_fn = lambda x: torch.sin(self.omega_0 * x)
+
         if self.is_last:
             self.act_fn = nn.Identity()
 
@@ -72,7 +89,8 @@ class SirenLayer(nn.Module):
         self.linear = nn.Linear(in_features, out_features)
 
         # Activate weights
-        self.init_weights()
+        if activation == 'siren':
+            self.init_weights()
 
     def init_weights(self):
         '''Initialize weights'''
@@ -87,47 +105,3 @@ class SirenLayer(nn.Module):
 
     def forward(self, x):
         return self.act_fn(self.linear(x))
-
-
-class SirenNet(nn.Module):
-
-    def __init__(
-        self,
-        dims,
-        first_omega_0=1.0,
-        hidden_omega_0=1.0,
-        mask=None,
-    ):
-        super().__init__()
-
-        # Input and output sizes
-        self.din = dims[0]
-        self.dout = dims[1]
-
-        # Depth and width of network
-        depth = dims[2]
-        width = dims[3]
-
-        net = []
-
-        # Mask
-        if mask is None:
-            self.mask = torch.ones(self.dout)
-        else:
-            self.mask = torch.tensor(mask)
-
-        # Input layer
-        net.append(SirenLayer(self.din, width, first_omega_0, is_first=True))
-
-        # Hidden layers
-        for _ in range(depth):
-            net.append(SirenLayer(width, width, hidden_omega_0))
-
-        # Output layer
-        net.append(SirenLayer(width, self.dout, hidden_omega_0, is_last=True))
-
-        # Create model
-        self.model = nn.Sequential(*net)
-
-    def forward(self, x):
-        return self.model(self.mask * x)

@@ -7,7 +7,7 @@ import torch
 from torch import nn
 import pytorch_lightning as pl
 
-from net_archs import MLP, SirenNet
+from net_archs import MLP
 
 
 # PINN module
@@ -16,10 +16,10 @@ class PhysicsInformedNN(pl.LightningModule):
 
     def __init__(self,
                  nn_dims,
+                 base_nn='mlp',
                  nn_kwargs=None,
                  lphys=1.0,
                  data_mask=None,
-                 base_nn='mlp',
                  eq_params=None,
                  inv_ctes=None,
                  inv_fields=None,
@@ -37,10 +37,9 @@ class PhysicsInformedNN(pl.LightningModule):
         else:
             self.lphys = {'value': lphys, 'rule': 'constant'}
 
+        # Choose network type
         if base_nn == 'mlp':
             BaseNN = MLP
-        elif base_nn == 'siren':
-            BaseNN = SirenNet
 
         # Main network
         if nn_kwargs is None:
@@ -68,7 +67,6 @@ class PhysicsInformedNN(pl.LightningModule):
 
     def pde(self, out, coords):
         '''pde to enforce'''
-        # pylint: disable=unused-argument
         return [torch.tensor([0.0])]
 
     def forward(self, coords):

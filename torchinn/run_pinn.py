@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
+import sys
 import numpy as np
 
 from pinn import PhysicsInformedNN, nn_grad
@@ -52,14 +53,25 @@ class TestPINN(PhysicsInformedNN):
         return [eq1, eq2, eq3, eq4]
 
 
-def main():
+def main(which):
     """main train function"""
+
+    # Set network
+    if which == 'elu':
+        main_kwargs = {'activation': 'elu'}
+        lr          = 1e-3
+    elif which == 'siren':
+        main_kwargs = {'activation': 'siren', 'first_omega_0': 5.0, 'hidden_omega_0': 5.0}
+        lr          = 1e-4
+
     # Instantiate model
+    inv_kwargs  = {'mask': [0, 1]}
     PINN = TestPINN([2, 2, 1, 64],
                     inv_ctes=[1.0, 1.0],
                     lphys={'value': 1.0, 'rule': 'adam-like'},
-                    inv_fields=[([2, 1, 1, 32], {'mask': [0, 1]})],
-                    lr=1e-3)
+                    inv_fields=[([2, 1, 1, 32], inv_kwargs)],
+                    nn_kwargs=main_kwargs,
+                    lr=lr)
 
     # Create Trainer with checkpointing and logging
     checkpoint_callback = ModelCheckpoint(dirpath='ckpt',
@@ -69,7 +81,7 @@ def main():
                                           mode='max',
                                           )
     logger = CSVLogger(save_dir='logs', name='')
-    trainer = pl.Trainer(max_epochs=50,
+    trainer = pl.Trainer(max_epochs=100,
                          enable_progress_bar=False,
                          callbacks=[checkpoint_callback],
                          logger=[logger],
@@ -80,4 +92,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        which = sys.argv[1]
+    else:
+        which = 'elu'
+    print(f'Running test for {which}')
+    main(which)
