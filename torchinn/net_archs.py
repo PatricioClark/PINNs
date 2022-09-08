@@ -10,7 +10,13 @@ import numpy as np
 class MLP(nn.Module):
     """Basic MLP"""
 
-    def __init__(self, dims, activation='elu', mask=None, **kwargs):
+    def __init__(self,
+                 dims,
+                 activation='elu',
+                 mask=None,
+                 norm_in=None,
+                 norm_out=None,
+                 **kwargs):
         """ Basic MLP """
         super().__init__()
 
@@ -24,9 +30,26 @@ class MLP(nn.Module):
 
         net = []
 
+        # Define normalizations
+        if norm_in is None:
+            self.norm_in = nn.Identity()
+        else:
+            xmin = torch.tensor(norm_in[0])
+            xmax = torch.tensor(norm_in[1])
+            norm = lambda x: 2*(x-xmin)/(xmax-xmin) - 1
+            self.norm_in = norm
+
+        if norm_out is None:
+            self.norm_out = nn.Identity()
+        else:
+            mm   = torch.tensor(norm_out[0])
+            sg   = torch.tensor(norm_out[1])
+            norm = lambda x: sg*x + mm
+            self.norm_out = norm
+
         # Mask
         if mask is None:
-            self.mask = torch.ones(self.dout)
+            self.mask = torch.ones(self.din)
         else:
             self.mask = torch.tensor(mask)
 
@@ -56,7 +79,10 @@ class MLP(nn.Module):
 
     def forward(self, x):
         """Forward pass"""
-        return self.model(self.mask * x)
+        x   = self.norm_in(x)
+        out = self.model(self.mask * x)
+        out = self.norm_out(out)
+        return out
 
 
 class ActivatedLayer(nn.Module):

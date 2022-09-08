@@ -38,6 +38,7 @@ class PhysicsInformedNN(pl.LightningModule):
             self.lphys = {'value': lphys, 'rule': 'constant'}
 
         # Choose network type
+        BaseNN = MLP
         if base_nn == 'mlp':
             BaseNN = MLP
 
