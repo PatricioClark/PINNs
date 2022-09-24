@@ -89,8 +89,8 @@ class PhysicsInformedNN:
                  activation='tanh',
                  resnet=False,
                  optimizer=keras.optimizers.Adam(lr=5e-4),
-                 norm_in=False,
-                 norm_out=False,
+                 norm_in=None,
+                 norm_out=None,
                  norm_out_type='z-score',
                  eq_params=[],
                  inverse=False,
@@ -113,26 +113,59 @@ class PhysicsInformedNN:
         self.norm_in     = norm_in
         self.norm_out    = norm_out
         self.optimizer   = optimizer
+        
+        # Define activation
+        if activation=='tanh':
+            self.act_fn = keras.activations.tanh
+            self.kinit  = 'glorot_normal'
+        elif activation=='relu':
+            self.act_fn = keras.activations.relu
+        elif activation=='elu':
+            self.act_fn = keras.activations.elu
+            self.kinit  = 'glorot_normal'
+        elif activation=='siren':
+            self.act_fn = SirenAct()
+            self.kinit  = tf.keras.initializers.RandomUniform(-1.0/din, 1.0/din)
+            first_omega0  = self.first_omega_0
+            hidden_omega0 = self.hidden_omega_0
+        elif activation=='adaptive_global':
+            self.act_fn = AdaptiveAct()
+        elif activation=='adaptive_layer':
+            self.adaptive = True
+        activation = {'type': 'elu',
+                      'act_fn': act_fn,}
         self.activation  = activation
 
-        # Input definition
+        # Input definition and normalization
         coords = keras.layers.Input(self.din, name='coords')
 
-        # Input normalzation
-        x1     = tf.Variable(norm_in[0], name='x1')
-        x2     = tf.Variable(norm_in[1], name='x2')
-        norm   = lambda x: 2*(x-x1)/(xmax-x2) - 1
+        if norm_in is not None:
+            x1     = tf.Variable(norm_in[0], name='x1')
+            x2     = tf.Variable(norm_in[1], name='x2')
+            norm   = lambda x: 2*(x-x1)/(xmax-x2) - 1
+        else:
+            x1   = tf.Variable(1.0,  name='x1')
+            x2   = tf.Variable(-1.0, name='y1')
+            norm = lambda x: x
+
+        self.norm = norm
         coords = keras.layers.Lambda(norm)(coords)
 
-        fields = self.generate_network(coords, self.layers)
+        # Generate main network
+        fields = self.generate_network(coords, self.layers, self.activation, self.resnet)
 
-        # Normalize output
-        y1 = tf.Variable(norm_out[0], name='y1')
-        y2 = tf.Variable(norm_out[1], name='y2')
-        if norm_out_type=='z-score':
-            out_norm = lambda x: y2*x + y1
-        elif norm_out_type=='min_max':
-            out_norm = lambda x: 0.5*(x+1)*(y2-y1) + y1
+        # Normalize main network output
+        if norm_out is not None:
+            y1 = tf.Variable(norm_out[0], name='y1')
+            y2 = tf.Variable(norm_out[1], name='y2')
+            if norm_out_type=='z-score':
+                out_norm = lambda x: y2*x + y1
+            elif norm_out_type=='min_max':
+                out_norm = lambda x: 0.5*(x+1)*(y2-y1) + y1
+        else:
+            y1   = tf.Variable(0.0, name='y1')
+            y2   = tf.Variable(1.0, name='y2')
+            out_norm = lambda x: x
         fields = keras.layers.Lambda(out_norm)(fields)
         outputs = [fields]
 
@@ -155,12 +188,7 @@ class PhysicsInformedNN:
         # Create save checkpoints / Load if existing previous
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
-                                           bal_data=self.bal_data,
                                            bal_phys=self.bal_phys,
-                                           x1=x1,
-                                           x2=x2,
-                                           y1=y1,
-                                           y2=y2,
                                            optimizer=self.optimizer)
         self.manager = tf.train.CheckpointManager(self.ckpt,
                                                   self.dest + '/ckpt',
@@ -168,15 +196,14 @@ class PhysicsInformedNN:
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
-    def generate_network(self, coords, dims, mask=None):
+    def generate_network(self, coords, dims, mask=None, out_name='fields'):
         ''' Generate network '''
         din   = dims[0]
         dout  = dims[-1]
         depth = len(dims)-2
         width = dims[1]
         if din != self.din:
-            pass
-            # raise some error
+            raise ValueError('The input dimensiones of all networks must be equal')
 
         # Activation function
         self.adaptive = False
@@ -191,7 +218,8 @@ class PhysicsInformedNN:
         elif activation=='siren':
             self.act_fn = SirenAct()
             self.kinit  = tf.keras.initializers.RandomUniform(-1.0/din, 1.0/din)
-            omega0      = 30.0
+            first_omega0  = self.first_omega_0
+            hidden_omega0 = self.hidden_omega_0
         elif activation=='adaptive_global':
             self.act_fn = AdaptiveAct()
         elif activation=='adaptive_layer':
@@ -223,7 +251,9 @@ class PhysicsInformedNN:
         # Output definition
         fields = keras.layers.Dense(self.dout,
                                     kernel_initializer=self.kinit,
-                                    name='fields')(hidden)
+                                    name=out_name)(hidden)
+
+        return fields
 
     def generate_inverse(self, coords):
         """
@@ -244,16 +274,17 @@ class PhysicsInformedNN:
         inv_outputs = []
 
         # Iterate through equation parameters
-        for inv in self.inverse:
+        for ii, inv in enumerate(self.inverse):
+            name = f'inv-{ii}'
 
             # Inverse parameter is a constant
             if   inv[0] == 'const':
-                ini = keras.initializers.Constant(value=(0, inv[1]))
-                out = tfp.VariableLayer(1, initializer=ini)
+                ini = keras.initializers.Constant(inv[1])
+                out = tfp.VariableLayer(1, initializer=ini, name=name)
 
             # Inverse parameter is a field
             elif inv[0] == 'func':
-                out = self.generate_network(coords, inv[1], mask=inv[2])
+                out = self.generate_network(coords, inv[1], mask=inv[2], name=name)
 
             # Append inverse
             inv_outputs.append(out)
