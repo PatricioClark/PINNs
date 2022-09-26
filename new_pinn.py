@@ -11,6 +11,8 @@ import tensorflow_probabilty as tfp
 import time
 
 tf.keras.backend.set_floatx('float32')
+
+
 class PhysicsInformedNN:
     """
     General PINN class
@@ -36,7 +38,6 @@ class PhysicsInformedNN:
     
     din   = input dims
     dout  = output dims
-    dpar  = number of parameters used by the pde
 
     Parameters
     ----------
@@ -62,7 +63,8 @@ class PhysicsInformedNN:
         network normalizes the outputs using z-score. Default is
         False.
     eq_params : list [optional]
-        List of parameters to be used in pde.
+        List of fixed parameters to be used in pde. Inverse paramters and
+        functions are handled by inverse (see below).
     inverse : list [optional]
         If a list is a supplied the PINN will run the inverse problem, where
         one or more of the paramters of the pde are to be found. The list must
@@ -73,11 +75,6 @@ class PhysicsInformedNN:
         tuple indicating which arguments the parameter depends on, and the
         second a list with the shape of the NN to be used to model the hidden
         parameter.
-    aux_model : tf.keras.Model [optional]
-        Option to add an auxiliary model as output. If None a dummy constant
-        output is added to the DeepONet. The aux_model is not trained. Default is None.
-    aux_coords : list [optional]
-        If using an aux_model, specify which variables of the trunk input are used for it.
     restore : bool [optional]
         If True, it checks if a checkpoint exists in dest. If a checkpoint
         exists it restores the modelfrom there. Default is True.
@@ -86,54 +83,29 @@ class PhysicsInformedNN:
     def __init__(self,
                  layers,
                  dest='./',
-                 activation='tanh',
+                 activation='elu',
                  resnet=False,
                  optimizer=keras.optimizers.Adam(lr=5e-4),
                  norm_in=None,
                  norm_out=None,
                  norm_out_type='z-score',
-                 eq_params=[],
-                 inverse=False,
-                 aux_model=None,
-                 aux_coords=None,
+                 eq_params=None,
+                 inverse=None,
                  restore=True):
 
         # Numbers and dimensions
-        self.din  = dims[0]
+        self.din    = layers[0]
         self.layers = layers
 
         # Extras
-        self.dpar        = len(eq_params)
         self.dest        = dest
         self.eq_params   = eq_params
-        self.eval_params = copy.copy(eq_params)
         self.resnet      = resnet
         self.inverse     = inverse
-        self.restore     = restore
         self.norm_in     = norm_in
         self.norm_out    = norm_out
         self.optimizer   = optimizer
-        
-        # Define activation
-        if activation=='tanh':
-            self.act_fn = keras.activations.tanh
-            self.kinit  = 'glorot_normal'
-        elif activation=='relu':
-            self.act_fn = keras.activations.relu
-        elif activation=='elu':
-            self.act_fn = keras.activations.elu
-            self.kinit  = 'glorot_normal'
-        elif activation=='siren':
-            self.act_fn = SirenAct()
-            self.kinit  = tf.keras.initializers.RandomUniform(-1.0/din, 1.0/din)
-            first_omega0  = self.first_omega_0
-            hidden_omega0 = self.hidden_omega_0
-        elif activation=='adaptive_global':
-            self.act_fn = AdaptiveAct()
-        elif activation=='adaptive_layer':
-            self.adaptive = True
-        activation = {'type': 'elu',
-                      'act_fn': act_fn,}
+        self.restore     = restore
         self.activation  = activation
 
         # Input definition and normalization
@@ -142,37 +114,43 @@ class PhysicsInformedNN:
         if norm_in is not None:
             x1     = tf.Variable(norm_in[0], name='x1')
             x2     = tf.Variable(norm_in[1], name='x2')
-            norm   = lambda x: 2*(x-x1)/(xmax-x2) - 1
+            def norm(x):
+                return 2*(x-x1)/(x2-x1) - 1
         else:
             x1   = tf.Variable(1.0,  name='x1')
-            x2   = tf.Variable(-1.0, name='y1')
-            norm = lambda x: x
+            x2   = tf.Variable(-1.0, name='x2')
+            def norm(x):
+                return x
 
         self.norm = norm
         coords = keras.layers.Lambda(norm)(coords)
 
         # Generate main network
-        fields = self.generate_network(coords, self.layers, self.activation, self.resnet)
+        fields = self._generate_network(coords, layers, activation, resnet)
 
         # Normalize main network output
         if norm_out is not None:
             y1 = tf.Variable(norm_out[0], name='y1')
             y2 = tf.Variable(norm_out[1], name='y2')
             if norm_out_type=='z-score':
-                out_norm = lambda x: y2*x + y1
+                def out_norm(x):
+                    return y2*x + y1
             elif norm_out_type=='min_max':
-                out_norm = lambda x: 0.5*(x+1)*(y2-y1) + y1
+                def out_norm(x):
+                    return 0.5*(x+1)*(y2-y1) + y1
         else:
             y1   = tf.Variable(0.0, name='y1')
             y2   = tf.Variable(1.0, name='y2')
-            out_norm = lambda x: x
-        fields = keras.layers.Lambda(out_norm)(fields)
-        outputs = [fields]
+            def out_norm(x):
+                return x
+        fields  = keras.layers.Lambda(out_norm)(fields)
 
         # Generate inverse parts
         if self.inverse is not None:
-            inv_outputs = self.generate_inverse(coords)
-            outputs     = outputs + inv_outputs
+            inv_outputs = self._generate_inverse(coords)
+        else:
+            inv_outputs = [coords]  # Use coords as dummy outputs
+        outputs = [fields] + inv_outputs
 
         # Create model
         model = keras.Model(inputs=coords, outputs=outputs)
@@ -196,51 +174,39 @@ class PhysicsInformedNN:
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
-    def generate_network(self, coords, dims, mask=None, out_name='fields'):
+    def _generate_network(self, coords, layers, activation, resnet, mask=None, out_name='fields'):
         ''' Generate network '''
-        din   = dims[0]
-        dout  = dims[-1]
-        depth = len(dims)-2
-        width = dims[1]
+        din   = layers[0]
+        dout  = layers[-1]
+        depth = len(layers)-2
+        width = layers[1]
         if din != self.din:
-            raise ValueError('The input dimensiones of all networks must be equal')
+            raise ValueError('The input dimensions of all networks must be equal!')
 
-        # Activation function
-        self.adaptive = False
-        if activation=='tanh':
-            self.act_fn = keras.activations.tanh
-            self.kinit  = 'glorot_normal'
-        elif activation=='relu':
-            self.act_fn = keras.activations.relu
-        elif activation=='elu':
-            self.act_fn = keras.activations.elu
-            self.kinit  = 'glorot_normal'
-        elif activation=='siren':
-            self.act_fn = SirenAct()
-            self.kinit  = tf.keras.initializers.RandomUniform(-1.0/din, 1.0/din)
-            first_omega0  = self.first_omega_0
-            hidden_omega0 = self.hidden_omega_0
-        elif activation=='adaptive_global':
-            self.act_fn = AdaptiveAct()
-        elif activation=='adaptive_layer':
-            self.adaptive = True
+        act_dict = self._generate_activation(activation)
 
         # Hidden layers
         first_layer = True
+        hidden = coords
         for ii in range(depth):
             new_layer = keras.layers.Dense(width,
-                                           kernel_initializer=self.kinit)(hidden)
+                                           kernel_initializer=act_dict['kinit'])(hidden)
             if activation=='siren':
-                self.kinit = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
-                                                                  tf.sqrt(6.0/width)/omega0)
+                if first_layer:
+                    omega0 = act_dict['first_omega_0']
+                else:
+                    omega0 = act_dict['hidden_omega_0']
+                act_dict['kinit'] = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
+                                                                         tf.sqrt(6.0/width)/omega0)
             if activation=='adaptive_layer':
-                self.act_fn = AdaptiveAct()
-            new_layer   = self.act_fn(new_layer)
+                act_dict['act_fn'] = AdaptiveAct()
+
+            new_layer   = act_dict['act_fn'](new_layer)
 
             if resnet and not first_layer:
                 aux_layer = keras.layers.Dense(width,
-                                               kernel_initializer=self.kinit)(new_layer)
-                aux_layer = self.act_fn(aux_layer)
+                                               kernel_initializer=act_dict['kinit'])(new_layer)
+                aux_layer = act_dict['act_fn'](aux_layer)
 
                 hidden = 0.5*(hidden + aux_layer)
             else:
@@ -249,13 +215,56 @@ class PhysicsInformedNN:
             first_layer = False
 
         # Output definition
-        fields = keras.layers.Dense(self.dout,
+        fields = keras.layers.Dense(dout,
                                     kernel_initializer=self.kinit,
                                     name=out_name)(hidden)
 
         return fields
 
-    def generate_inverse(self, coords):
+    def _generate_activation(self, activation):
+        ''' Geneate dictionary with activation function properties '''
+        act_dict = {}
+
+        # Check type
+        if type(activation) is str:
+            act_dict['type'] = activation
+        elif isinstance(activation, dict):
+            act_dict['type'] = activation['type']
+
+        # Load default values
+        act_dict['adaptive'] = False
+        if act_dict['type'] == 'tanh':
+            act_fn = keras.activations.tanh
+            kinit  = 'glorot_normal'
+
+        elif act_dict['type'] == 'relu':
+            act_fn = keras.activations.relu
+
+        elif act_dict['type'] == 'elu':
+            act_fn = keras.activations.elu
+            kinit  = 'glorot_normal'
+
+        elif act_dict['type'] == 'siren':
+            act_fn = SirenAct()
+            kinit  = tf.keras.initializers.RandomUniform(-1.0/self.din,
+                                                          1.0/self.din)
+            act_dict['first_omega0']  = 30.0
+            act_dict['hidden_omega0'] = 30.0
+
+        else:
+            raise ValueError(f"Activation type '{act_dict['type']}' not implemented")
+
+        act_dict['act_fn'] = act_fn
+        act_dict['kinit']  = kinit
+
+        # Look for new values
+        if isinstance(activation, dict):
+            for key in activation:
+                act_dict[key] = activation[key]
+
+        return act_dict
+
+    def _generate_inverse(self, coords):
         """
         Generate networks for inverse problem
 
@@ -278,13 +287,19 @@ class PhysicsInformedNN:
             name = f'inv-{ii}'
 
             # Inverse parameter is a constant
-            if   inv[0] == 'const':
-                ini = keras.initializers.Constant(inv[1])
+            if   inv['type'] == 'const':
+                ini = keras.initializers.Constant(inv['value'])
                 out = tfp.VariableLayer(1, initializer=ini, name=name)
 
             # Inverse parameter is a field
-            elif inv[0] == 'func':
-                out = self.generate_network(coords, inv[1], mask=inv[2], name=name)
+            elif inv['type'] == 'func':
+                if 'activation' not in inv:
+                    inv['activation'] = self.activation
+                if 'resnet' not in inv:
+                    inv['resnet'] = self.resnet
+                if 'mask' not in inv:
+                    inv['mask'] = None
+                out = self._generate_network(coords, inv['layers'], inv['activation'], inv['resnet'], mask=inv['mask'], name=name)
 
             # Append inverse
             inv_outputs.append(out)
@@ -431,12 +446,13 @@ class PhysicsInformedNN:
                 l_phys = tf.constant(l_phys, dtype='float32')
                 ba_counter  = tf.constant(ba)
 
-                if timer: t0 = time.time()
+                if timer:
+                    t0 = time.time()
                 (loss_data,
                  loss_phys,
                  inv_outputs,
                  bal_data,
-                 bal_phys) = self.training_step(X_batch, Y_batch,
+                 bal_phys) = self._training_step(X_batch, Y_batch,
                                                    pde,
                                                    l_data,
                                                    l_phys,
@@ -449,12 +465,13 @@ class PhysicsInformedNN:
                                                    ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
-                    if ba>10: timer = False
+                    if ba>10:
+                        timer = False
 
 
             # Print status
             if ep%print_freq==0:
-                self.print_status(ep,
+                self._print_status(ep,
                                   loss_data,
                                   loss_phys,
                                   inv_outputs,
@@ -474,38 +491,21 @@ class PhysicsInformedNN:
                 self.manager.save()
 
     @tf.function
-    def training_step(self, X_batch, Y_batch,
+    def _training_step(self, X_batch, Y_batch,
                       pde, lambda_data, lambda_phys,
                       data_mask, bal_data, bal_phys, alpha, ntk_balance, ntk_freq, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(X_batch, training=True)
             Y_pred = output[0]
-            p_pred = output[1:self.auxm_idx]
             aux = [tf.reduce_mean(
                    lambda_data*tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
                    for ii in range(self.dout)
                    if data_mask[ii]]
             loss_data = tf.add_n(aux)
 
-            # Statistics part
-            # aux1 = tf.square(tf.reduce_mean(Y_pred[:,0]))
-            # aux2 = tf.square(tf.sqrt(tf.reduce_mean(Y_pred[:,0]**2) - tf.reduce_mean(Y_pred[:,0])**2) - 0.5)
-            # aux3 = tf.square(
-            #         tf.abs(tf.reduce_mean((Y_pred[:,0]-tf.reduce_mean(Y_pred[:,0]))**3.0))**(1.0/3.0)
-            #         - 0.25)
-            # loss_data = loss_data + aux1 + aux2 + aux3
-
-            # Grab inverse coefs
-            if self.inverse:
-                qq = 0
-                for pp in range(self.dpar):
-                    if self.inverse[pp]:
-                        self.eval_params[pp] = p_pred[qq][:,0]
-                        qq += 1
-
             # Physics part
-            equations = pde(self.model, X_batch, self.eval_params)
+            equations = pde(self.model, X_batch, eq_params=self.eq_params, inverse=self.inverse)
             loss_eqs  = [tf.reduce_mean(
                          lambda_phys*tf.square(eq))
                          for eq in equations]
@@ -526,35 +526,11 @@ class PhysicsInformedNN:
                     self.model.trainable_variables,
                     unconnected_gradients=tf.UnconnectedGradients.ZERO)
 
-        # NTK theory dynamic balance
-        if ntk_balance and ba%ntk_freq==0:
-            if self.inverse:
-                raise ValueError("ntk_balance has not been implemented for the"
-                                 " inverse case")
-            g_out = tape.jacobian(Y_pred,
-                    self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
-            g_eqs = tape.jacobian(equations,
-                    self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
-
-            tr_kuu = get_tr_k(g_out)
-            tr_krr = get_tr_k(g_eqs)
-            tr_k   = tr_kuu + tr_krr
-
-            bal_data = tr_k/tr_kuu
-            bal_phys = tr_k/tr_krr
-
         # Delete tape
         del tape
 
-        # Check that both alpha and ntk_balance are True
-        if alpha and ntk_balance:
-            raise ValueError("Both alpha and ntk_balance cannot have True"
-                             " values. Choose one, please.")
-
         # alpha-based dynamic balance
-        if alpha>0.0:
+        if alpha > 0.0:
             mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
             mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
             lhat = mean_grad_phys/mean_grad_data
@@ -566,11 +542,18 @@ class PhysicsInformedNN:
         self.optimizer.apply_gradients(zip(gradients,
                     self.model.trainable_variables))
 
+        # Save inverse constants for output
+        inv_ctes = []
+        if self.inverse is not None:
+            for ii, inv in enumerate(self.inverse):
+                if inv['type'] == 'const':
+                    inv_ctes.append(output[ii][0])
+
         return (loss_data, loss_phys,
-                [param[0][0] for param in p_pred],
+                inv_ctes,
                 bal_data, bal_phys)
 
-    def print_status(self, ep, lu, lf,
+    def _print_status(self, ep, lu, lf,
                      inv_outputs, alpha, ntk_balance, verbose=False):
         """ Print status function """
 
@@ -583,11 +566,9 @@ class PhysicsInformedNN:
             print(ep, f'{lu}', f'{lf}')
 
         # Inverse coefficients
-        if self.inverse:
+        if self.inverse and inv_outputs is not None:
             output_file = open(self.dest + 'inverse.dat', 'a')
-            if self.inverse:
-                print(ep, *[pp.numpy() for pp in inv_outputs],
-                      file=output_file)
+            print(ep, *[pp.numpy() for pp in inv_outputs], file=output_file)
             output_file.close()
 
         # Balance lambda with alpha
@@ -673,4 +654,3 @@ class SirenAct(keras.layers.Layer):
 
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
-
