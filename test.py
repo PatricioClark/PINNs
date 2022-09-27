@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import time
 import sys
 
-from new_pinn import PhysicsInformedNN
+from pinn import PhysicsInformedNN
     
 # -----------------------------------------------------------------------------
 # Equations to enforce
