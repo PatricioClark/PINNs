@@ -72,6 +72,7 @@ lr = keras.optimizers.schedules.ExponentialDecay(1e-3, 1000, 0.9)
 layers  = [2] + 2*[64] + [2]
 PINN = PhysicsInformedNN(layers,
                          dest='./odir/',
+                         activation='elu',
                          optimizer=keras.optimizers.Adam(lr),
                          inverse=[{'type': 'const', 'value': 1.0},
                                   {'type': 'const', 'value': 1.0}],
@@ -82,7 +83,7 @@ print('Learning rate:', PINN.optimizer._decayed_lr(tf.float32))
 # -----------------------------------------------------------------------------
 # Train PINN
 # -----------------------------------------------------------------------------
-alpha = 0.0
+alpha = 0.1
 PINN.train(X, Y, some_eqs, epochs=2,
            lambda_data=np.array([1.0 for _ in range(len(X))]),
            lambda_phys=np.array([1.0 for _ in range(len(X))]),
@@ -121,6 +122,12 @@ plt.plot(ep, c1, label='Parameter')
 plt.axhline(2,color='k',ls='--',label='Real value')
 plt.legend()
 plt.savefig(prefix+'_10')
+
+plt.figure(11)
+plt.plot(ep, c2, label='Parameter')
+plt.axhline(3,color='k',ls='--',label='Real value')
+plt.legend()
+plt.savefig(prefix+'_11')
 
 # Evalute along x_2=0
 X      = np.concatenate((x1,zs), 1)

@@ -1,33 +1,37 @@
-# PINN general class
+"""Implementation of Physics-Informed Neural Networks (PINNs)
 
-# Requires Python 3.* and Tensorflow 2.0
+Original references:
+    - Raissi et al
 
-import os
-import copy
+2022 Patricio Clark Di Leoni
+     Departamento de Ingeniería
+     Universidad de San Andrés
+     e-mail: pclarkdileoni@udesa.edu.ar
+"""
+
 import numpy as np
 import tensorflow as tf
 from   tensorflow import keras
-import tensorflow_probability as tfp
 import time
 
 tf.keras.backend.set_floatx('float32')
 
 
 class PhysicsInformedNN:
-    """
-    General PINN class
+    """General PINN class
 
     Dimensional and problem agnostic implementatation of a Physics Informed
-    Neural Netowrk (PINN). Dimensionality is set by specifying the dimensions
-    of the inputs and the outputs. The Physics is set by writing the partial
-    differential equations of the problem.
+    Neural Netowrk (PINN), geared towards solving inverse problems.
+    Dimensionality is set by specifying the dimensions of the inputs and the
+    outputs. The Physics is set by supplying the partial differential equations
+    of the problem.
 
     The instantiated model is stored in self.model and it takes coords as inputs
     and outputs a list where the first contains the learned fields and the rest
     of the entries contains the different learned parameters when running an
     inverse PINN or a dummy output that should be disregarded when not.
 
-    Training can be done usuing the dynamic balance methods described in
+    Training can be done using the dynamic balance methods described in
     "Understanding and mitigating gradient pathologies in physics-informed
     neural networks" by Wang, Teng & Perdikaris (2020) (alpha option in
     training).
@@ -37,42 +41,42 @@ class PhysicsInformedNN:
     din   = input dims
     dout  = output dims
 
-    Parameters
-    ----------
 
-    layers : list
-        Shape of the NN. The first element must be din, and the last one must
-        be dout.
-    dest : str [optional]
-        Path for output files.
-    activation : str [optional]
-        Activation function to be used. Default is 'tanh'.
-    resnet : bool [optional]
-        If True turn PINN into a residual network with two layers per block.
-    optimizer : keras.optimizer instance [optional]
-        Optimizer to be used in the gradient descent. Default is Adam with
-        fixed learning rate equal to 5e-4.
-    norm_in : float or array [optional]
-        If a number or an array of size din is supplied, the first layer of the
-        network normalizes the inputs uniformly between -1 and 1. Default is
-        False.
-    norm_out : float or array [optional]
-        If a number or an array of size dout is supplied, the layer layer of the
-        network normalizes the outputs using z-score. Default is
-        False.
-    inverse : list [optional]
-        If a list is a supplied the PINN will run the inverse problem, where
-        one or more of the paramters of the pde are to be found. The list must
-        be of the same length as eq_params and its entries can be False, if that
-        parameters is fixed, 'const' if the parameters to be learned is a
-        constant (in this case the value provided in eq_params will be used to
-        initialize the variable), or a list with two elements, the first a
-        tuple indicating which arguments the parameter depends on, and the
-        second a list with the shape of the NN to be used to model the hidden
-        parameter.
-    restore : bool [optional]
-        If True, it checks if a checkpoint exists in dest. If a checkpoint
-        exists it restores the modelfrom there. Default is True.
+    Args:
+        layers : list
+            Shape of the NN. The first element must be din, and the last one
+            must be dout.
+        dest : str [optional]
+            Path for output files.
+        activation : str [optional]
+            Activation function to be used. Default is 'tanh'.
+        resnet : bool [optional]
+            If True turn PINN into a residual network with two layers per
+            block.
+        optimizer : keras.optimizer instance [optional]
+            Optimizer to be used in the gradient descent. Default is Adam with
+            fixed learning rate equal to 5e-4.
+        norm_in : float or array [optional]
+            If a number or an array of size din is supplied, the first layer of
+            the network normalizes the inputs uniformly between -1 and 1.
+            Default is False.
+        norm_out : float or array [optional]
+            If a number or an array of size dout is supplied, the layer layer
+            of the network normalizes the outputs using z-score. Default is
+            False.
+        inverse : list [optional]
+            If a list is a supplied the PINN will run the inverse problem,
+            where one or more of the paramters of the pde are to be found. The
+            list must be of the same length as eq_params and its entries can be
+            False, if that parameters is fixed, 'const' if the parameters to be
+            learned is a constant (in this case the value provided in eq_params
+            will be used to initialize the variable), or a list with two
+            elements, the first a tuple indicating which arguments the
+            parameter depends on, and the second a list with the shape of the
+            NN to be used to model the hidden parameter.
+        restore : bool [optional]
+            If True, it checks if a checkpoint exists in dest. If a checkpoint
+            exists it restores the modelfrom there. Default is True.
     """
     # Initialize the class
     def __init__(self,
@@ -154,13 +158,11 @@ class PhysicsInformedNN:
         self.num_trainable_vars = tf.cast(self.num_trainable_vars, tf.float32)
 
         # Parameters for dynamic balance
-        self.bal_data = tf.Variable(1.0, name='bal_data')
         self.bal_phys = tf.Variable(1.0, name='bal_phys')
 
         # Create save checkpoints / Load if existing previous
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
-                                           bal_data=self.bal_data,
                                            bal_phys=self.bal_phys,
                                            optimizer=self.optimizer)
         self.manager = tf.train.CheckpointManager(self.ckpt,
@@ -190,13 +192,18 @@ class PhysicsInformedNN:
         for ii in range(depth):
             new_layer = keras.layers.Dense(width,
                                            kernel_initializer=act_dict['kinit'])(hidden)
+
+            # Update params depending on arch choices
             if act_dict['type'] == 'siren':
                 if first_layer:
-                    omega0 = act_dict['first_omega_0']
+                    omega0 = act_dict['first_omega0']
                 else:
-                    omega0 = act_dict['hidden_omega_0']
+                    omega0 = act_dict['hidden_omega0']
                 act_dict['kinit'] = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
                                                                          tf.sqrt(6.0/width)/omega0)
+                act_dict['act_fn'] = SirenAct(omega0=omega0)
+
+            # Apply activation function
             new_layer   = act_dict['act_fn'](new_layer)
 
             if resnet and not first_layer:
@@ -415,7 +422,6 @@ class PhysicsInformedNN:
             batch_size = len_data//num_flags
 
         # Cast balance
-        bal_data = tf.constant(self.bal_data.numpy(), dtype='float32')
         bal_phys = tf.constant(self.bal_phys.numpy(), dtype='float32')
 
         # Run epochs
@@ -437,8 +443,8 @@ class PhysicsInformedNN:
                                           random=rnd_order_training)
                 x_batch = tf.convert_to_tensor(x_batch)
                 y_batch = tf.convert_to_tensor(y_batch)
-                l_data = tf.constant(l_data, dtype='float32')
-                l_phys = tf.constant(l_phys, dtype='float32')
+                l_data  = tf.constant(l_data, dtype='float32')
+                l_phys  = tf.constant(l_phys, dtype='float32')
                 ba_counter  = tf.constant(ba)
 
                 if timer:
@@ -446,7 +452,6 @@ class PhysicsInformedNN:
                 (loss_data,
                  loss_phys,
                  inv_outputs,
-                 bal_data,
                  bal_phys) = self._training_step(x_batch,
                                                  y_batch,
                                                  pde,
@@ -454,7 +459,6 @@ class PhysicsInformedNN:
                                                  l_data,
                                                  l_phys,
                                                  data_mask,
-                                                 bal_data,
                                                  bal_phys,
                                                  alpha,
                                                  ba_counter)
@@ -479,7 +483,6 @@ class PhysicsInformedNN:
 
             # Save progress
             self.ckpt.step.assign_add(1)
-            self.ckpt.bal_data.assign(bal_data.numpy())
             self.ckpt.bal_phys.assign(bal_phys.numpy())
             if ep%save_freq==0:
                 self.manager.save()
@@ -487,7 +490,7 @@ class PhysicsInformedNN:
     @tf.function
     def _training_step(self, x_batch, y_batch,
                       pde, eq_params, lambda_data, lambda_phys,
-                      data_mask, bal_data, bal_phys, alpha, ba):
+                      data_mask, bal_phys, alpha, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(x_batch, training=True)
@@ -506,10 +509,6 @@ class PhysicsInformedNN:
             loss_phys = tf.add_n(loss_eqs)
             equations = tf.convert_to_tensor(equations)
 
-            # Total loss function
-            loss = loss_data + loss_phys
-            loss = tf.add_n([loss] + self.model.losses)
-
         # Calculate gradients of data part
         gradients_data = tape.gradient(loss_data,
                     self.model.trainable_variables,
@@ -527,11 +526,11 @@ class PhysicsInformedNN:
         if alpha > 0.0:
             mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
             mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
-            lhat = mean_grad_phys/mean_grad_data
-            bal_data = (1.0-alpha)*bal_data + alpha*lhat
+            lhat = mean_grad_data/mean_grad_phys
+            bal_phys = (1.0-alpha)*bal_phys + alpha*lhat
 
-        # Apply gradients
-        gradients = [bal_data*g_data + bal_phys*g_phys
+        # Apply gradients to the total loss function
+        gradients = [g_data + bal_phys*g_phys
                      for g_data, g_phys in zip(gradients_data, gradients_phys)]
         self.optimizer.apply_gradients(zip(gradients,
                     self.model.trainable_variables))
@@ -542,11 +541,11 @@ class PhysicsInformedNN:
             for ii, inv in enumerate(self.inverse, start=1):
                 if inv['type'] == 'const':
                     inv_ctes.append(output[ii][0])
-                    # breakpoint()
 
-        return (loss_data, loss_phys,
+        return (loss_data,
+                loss_phys,
                 inv_ctes,
-                bal_data, bal_phys)
+                bal_phys)
 
     def _print_status(self, ep, lu, lf,
                      inv_ctes, alpha, verbose=False):
@@ -569,7 +568,7 @@ class PhysicsInformedNN:
         # Balance lambda with alpha
         if alpha:
             output_file = open(self.dest + 'balance.dat', 'a')
-            print(ep, self.bal_data.numpy(),
+            print(ep, self.bal_phys.numpy(),
                   file=output_file)
             output_file.close()
 
