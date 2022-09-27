@@ -7,19 +7,21 @@ import matplotlib.pyplot as plt
 import time
 import sys
 
-from pinn import PhysicsInformedNN
+from new_pinn import PhysicsInformedNN
     
 # -----------------------------------------------------------------------------
 # Equations to enforce
 # -----------------------------------------------------------------------------
 
 @tf.function
-def some_eqs(model, coords, params):
+def some_eqs(model, coords, eq_params):
     dout = 2
     with tf.GradientTape(persistent=True) as tape:
         tape.watch(coords)
-        Yp = model(coords)[0]
-        fields = [Yp[:,jj] for jj in range(dout)]
+        out = model(coords)
+        yp  = out[0]
+        inv = out[1:]
+        fields = [yp[:,jj] for jj in range(dout)]
     df = [tape.gradient(fields[jj], coords) for jj in range(dout)]
     df1dx1 = df[0][:,0]
     df1dx2 = df[0][:,1]
@@ -30,10 +32,10 @@ def some_eqs(model, coords, params):
     eq1 = df1dx1 - np.pi*tf.cos(np.pi*coords[:,0])
     eq2 = df1dx2 + np.pi*tf.sin(np.pi*coords[:,1])
 
-    # params[0] should be equal to 2
-    # params[1] should be equal to 3
-    eq3 = df2dx1 - params[1]*coords[:,0]**2
-    eq4 = df2dx2 - params[0]*coords[:,1]
+    # inv[0] should be equal to 2
+    # inv[1] should be equal to 3
+    eq3 = df2dx1 - inv[1][0]*coords[:,0]**2
+    eq4 = df2dx2 - inv[0][0]*coords[:,1]
     return [eq1, eq2, eq3, eq4]
 
 # -----------------------------------------------------------------------------
@@ -71,9 +73,10 @@ layers  = [2] + 2*[64] + [2]
 PINN = PhysicsInformedNN(layers,
                          dest='./odir/',
                          optimizer=keras.optimizers.Adam(lr),
-                         eq_params=[2,3],
-                         inverse=['const', False],
+                         inverse=[{'type': 'const', 'value': 1.0},
+                                  {'type': 'const', 'value': 1.0}],
                          restore=False)
+PINN.model.summary()
 print('Learning rate:', PINN.optimizer._decayed_lr(tf.float32))
 
 # -----------------------------------------------------------------------------
@@ -105,7 +108,7 @@ prefix = 'odir/fig'
 # Plot loss functions
 ep, lu, lf = np.loadtxt('odir/output.dat', unpack=True)
 
-ep, c1 = np.loadtxt('odir/inverse.dat', unpack=True)
+ep, c1, c2 = np.loadtxt('odir/inverse.dat', unpack=True)
 
 plt.figure(0)
 plt.plot(ep, lu, label='Data loss')

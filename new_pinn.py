@@ -7,7 +7,7 @@ import copy
 import numpy as np
 import tensorflow as tf
 from   tensorflow import keras
-import tensorflow_probabilty as tfp
+import tensorflow_probability as tfp
 import time
 
 tf.keras.backend.set_floatx('float32')
@@ -19,7 +19,7 @@ class PhysicsInformedNN:
 
     Dimensional and problem agnostic implementatation of a Physics Informed
     Neural Netowrk (PINN). Dimensionality is set by specifying the dimensions
-    of the inputs and the outputs. The Physiscs is set by writing the partial
+    of the inputs and the outputs. The Physics is set by writing the partial
     differential equations of the problem.
 
     The instantiated model is stored in self.model and it takes coords as inputs
@@ -30,8 +30,6 @@ class PhysicsInformedNN:
     Training can be done usuing the dynamic balance methods described in
     "Understanding and mitigating gradient pathologies in physics-informed
     neural networks" by Wang, Teng & Perdikaris (2020) (alpha option in
-    training) or "When and why PINNs fail to train: A neural tangent kernel
-    perspective" by Wang, Yu & Perdikaris (2020) (ntk_balance option in
     training).
 
     A few definitions before proceeding to the initialization parameters:
@@ -62,9 +60,6 @@ class PhysicsInformedNN:
         If a number or an array of size dout is supplied, the layer layer of the
         network normalizes the outputs using z-score. Default is
         False.
-    eq_params : list [optional]
-        List of fixed parameters to be used in pde. Inverse paramters and
-        functions are handled by inverse (see below).
     inverse : list [optional]
         If a list is a supplied the PINN will run the inverse problem, where
         one or more of the paramters of the pde are to be found. The list must
@@ -89,17 +84,16 @@ class PhysicsInformedNN:
                  norm_in=None,
                  norm_out=None,
                  norm_out_type='z-score',
-                 eq_params=None,
                  inverse=None,
                  restore=True):
 
         # Numbers and dimensions
         self.din    = layers[0]
+        self.dout   = layers[-1]
         self.layers = layers
 
         # Extras
         self.dest        = dest
-        self.eq_params   = eq_params
         self.resnet      = resnet
         self.inverse     = inverse
         self.norm_in     = norm_in
@@ -166,6 +160,7 @@ class PhysicsInformedNN:
         # Create save checkpoints / Load if existing previous
         self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
                                            model=self.model,
+                                           bal_data=self.bal_data,
                                            bal_phys=self.bal_phys,
                                            optimizer=self.optimizer)
         self.manager = tf.train.CheckpointManager(self.ckpt,
@@ -185,22 +180,23 @@ class PhysicsInformedNN:
 
         act_dict = self._generate_activation(activation)
 
+        # Apply mask if provided
+        if mask is not None:
+            coords = keras.layers.Lambda(lambda x: mask*x)(coords)
+
         # Hidden layers
-        first_layer = True
         hidden = coords
+        first_layer = True
         for ii in range(depth):
             new_layer = keras.layers.Dense(width,
                                            kernel_initializer=act_dict['kinit'])(hidden)
-            if activation=='siren':
+            if act_dict['type'] == 'siren':
                 if first_layer:
                     omega0 = act_dict['first_omega_0']
                 else:
                     omega0 = act_dict['hidden_omega_0']
                 act_dict['kinit'] = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
                                                                          tf.sqrt(6.0/width)/omega0)
-            if activation=='adaptive_layer':
-                act_dict['act_fn'] = AdaptiveAct()
-
             new_layer   = act_dict['act_fn'](new_layer)
 
             if resnet and not first_layer:
@@ -216,13 +212,13 @@ class PhysicsInformedNN:
 
         # Output definition
         fields = keras.layers.Dense(dout,
-                                    kernel_initializer=self.kinit,
+                                    kernel_initializer=act_dict['kinit'],
                                     name=out_name)(hidden)
 
         return fields
 
     def _generate_activation(self, activation):
-        ''' Geneate dictionary with activation function properties '''
+        ''' Generate dictionary with activation function properties '''
         act_dict = {}
 
         # Check type
@@ -232,7 +228,6 @@ class PhysicsInformedNN:
             act_dict['type'] = activation['type']
 
         # Load default values
-        act_dict['adaptive'] = False
         if act_dict['type'] == 'tanh':
             act_fn = keras.activations.tanh
             kinit  = 'glorot_normal'
@@ -288,8 +283,12 @@ class PhysicsInformedNN:
 
             # Inverse parameter is a constant
             if   inv['type'] == 'const':
-                ini = keras.initializers.Constant(inv['value'])
-                out = tfp.VariableLayer(1, initializer=ini, name=name)
+                cte = keras.layers.Lambda(lambda x: 0*x)(coords)
+                ini = keras.initializers.Constant(value=inv['value'])
+                out = keras.layers.Dense(1,
+                                         bias_initializer=ini,
+                                         name=name,
+                                         use_bias=True)(cte)
 
             # Inverse parameter is a field
             elif inv['type'] == 'func':
@@ -299,7 +298,12 @@ class PhysicsInformedNN:
                     inv['resnet'] = self.resnet
                 if 'mask' not in inv:
                     inv['mask'] = None
-                out = self._generate_network(coords, inv['layers'], inv['activation'], inv['resnet'], mask=inv['mask'], name=name)
+                out = self._generate_network(coords,
+                                             inv['layers'],
+                                             inv['activation'],
+                                             inv['resnet'],
+                                             mask=inv['mask'],
+                                             name=name)
 
             # Append inverse
             inv_outputs.append(out)
@@ -307,14 +311,15 @@ class PhysicsInformedNN:
         return inv_outputs
 
     def train(self,
-              X_data, Y_data,
+              x_data,
+              y_data,
               pde,
-              epochs, batch_size,
+              epochs,
+              batch_size,
+              eq_params=None,
               lambda_data=1.0,
               lambda_phys=1.0,
               alpha=0.0,
-              ntk_balance=False,
-              ntk_freq=10,
               flags=None,
               rnd_order_training=True,
               verbose=False,
@@ -331,10 +336,10 @@ class PhysicsInformedNN:
         Parameters
         ----------
 
-        X_data : ndarray
+        x_data : ndarray
             Coordinates where the data constraint is going to be enforced.
             Must have shape (:, din).
-        Y_data : ndarray
+        y_data : ndarray
             Data used for the data constraint.
             Must have shape (:, dout). First dimension must be the same as
             X_data. If data constraint is not to be enforced on a certain field
@@ -357,18 +362,8 @@ class PhysicsInformedNN:
             to the particular lambda_phys of the corresponding data point.
         alpha : float [optional]
             If non-zero, performs adaptive balance of the physics and data part
-            of the loss functions. See comment above for reference. Cannot be
-            set if "ntk_balance" is also set. Default is zero.
-        ntk_balance : bool [optional]
-            If True, performs adaptive balance of the physics and data part
-            of the loss functions based on NTK theory every ntk_freq steps. See
-            comment above for reference. Cannot be set if "alpha" is also set
-            or is the PINN is defined in inverse mode. Default is False.
-        ntk_freq : int [optional]
-            Frequency, in batch iterations, for which the ntk_balance is
-            updated. Note that the values of bal_data and bal_phys are preseved
-            when restoring a network, so updates can be stopped by turning off
-            ntk_balance. Default is 10.
+            of the loss functions. See comment above for reference. Default is
+            zero.
         flags: ndarray of ints [optional]
             If supplied, different flags will be used to group different
             points, and then each batch will be formed by picking points from
@@ -396,7 +391,7 @@ class PhysicsInformedNN:
             all True.
         """
 
-        len_data = X_data.shape[0]
+        len_data = x_data.shape[0]
         batches = len_data // batch_size
 
         # Check data_mask
@@ -429,19 +424,19 @@ class PhysicsInformedNN:
             for ba in range(batches):
 
                 # Create batches and cast to TF objects
-                (X_batch,
-                 Y_batch,
+                (x_batch,
+                 y_batch,
                  l_data,
-                 l_phys) = get_mini_batch(X_data,
-                                          Y_data,
+                 l_phys) = get_mini_batch(x_data,
+                                          y_data,
                                           lambda_data,
                                           lambda_phys,
                                           ba,
                                           batch_size,
                                           flag_idxs,
                                           random=rnd_order_training)
-                X_batch = tf.convert_to_tensor(X_batch)
-                Y_batch = tf.convert_to_tensor(Y_batch)
+                x_batch = tf.convert_to_tensor(x_batch)
+                y_batch = tf.convert_to_tensor(y_batch)
                 l_data = tf.constant(l_data, dtype='float32')
                 l_phys = tf.constant(l_phys, dtype='float32')
                 ba_counter  = tf.constant(ba)
@@ -452,17 +447,17 @@ class PhysicsInformedNN:
                  loss_phys,
                  inv_outputs,
                  bal_data,
-                 bal_phys) = self._training_step(X_batch, Y_batch,
-                                                   pde,
-                                                   l_data,
-                                                   l_phys,
-                                                   data_mask,
-                                                   bal_data,
-                                                   bal_phys,
-                                                   alpha,
-                                                   ntk_balance,
-                                                   ntk_freq,
-                                                   ba_counter)
+                 bal_phys) = self._training_step(x_batch,
+                                                 y_batch,
+                                                 pde,
+                                                 eq_params,
+                                                 l_data,
+                                                 l_phys,
+                                                 data_mask,
+                                                 bal_data,
+                                                 bal_phys,
+                                                 alpha,
+                                                 ba_counter)
                 if timer:
                     print("Time per batch:", time.time()-t0)
                     if ba>10:
@@ -476,7 +471,6 @@ class PhysicsInformedNN:
                                   loss_phys,
                                   inv_outputs,
                                   alpha,
-                                  ntk_balance,
                                   verbose=verbose)
 
             # Perform validation check
@@ -491,21 +485,21 @@ class PhysicsInformedNN:
                 self.manager.save()
 
     @tf.function
-    def _training_step(self, X_batch, Y_batch,
-                      pde, lambda_data, lambda_phys,
-                      data_mask, bal_data, bal_phys, alpha, ntk_balance, ntk_freq, ba):
+    def _training_step(self, x_batch, y_batch,
+                      pde, eq_params, lambda_data, lambda_phys,
+                      data_mask, bal_data, bal_phys, alpha, ba):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
-            output = self.model(X_batch, training=True)
-            Y_pred = output[0]
+            output = self.model(x_batch, training=True)
+            y_pred = output[0]
             aux = [tf.reduce_mean(
-                   lambda_data*tf.square(Y_batch[:,ii]-Y_pred[:,ii]))
+                   lambda_data*tf.square(y_batch[:,ii]-y_pred[:,ii]))
                    for ii in range(self.dout)
                    if data_mask[ii]]
             loss_data = tf.add_n(aux)
 
             # Physics part
-            equations = pde(self.model, X_batch, eq_params=self.eq_params, inverse=self.inverse)
+            equations = pde(self.model, x_batch, eq_params)
             loss_eqs  = [tf.reduce_mean(
                          lambda_phys*tf.square(eq))
                          for eq in equations]
@@ -545,16 +539,17 @@ class PhysicsInformedNN:
         # Save inverse constants for output
         inv_ctes = []
         if self.inverse is not None:
-            for ii, inv in enumerate(self.inverse):
+            for ii, inv in enumerate(self.inverse, start=1):
                 if inv['type'] == 'const':
                     inv_ctes.append(output[ii][0])
+                    # breakpoint()
 
         return (loss_data, loss_phys,
                 inv_ctes,
                 bal_data, bal_phys)
 
     def _print_status(self, ep, lu, lf,
-                     inv_outputs, alpha, ntk_balance, verbose=False):
+                     inv_ctes, alpha, verbose=False):
         """ Print status function """
 
         # Loss functions
@@ -566,30 +561,15 @@ class PhysicsInformedNN:
             print(ep, f'{lu}', f'{lf}')
 
         # Inverse coefficients
-        if self.inverse and inv_outputs is not None:
+        if self.inverse and len(inv_ctes) > 0:
             output_file = open(self.dest + 'inverse.dat', 'a')
-            print(ep, *[pp.numpy() for pp in inv_outputs], file=output_file)
+            print(ep, *[pp.numpy()[0] for pp in inv_ctes], file=output_file)
             output_file.close()
 
         # Balance lambda with alpha
         if alpha:
             output_file = open(self.dest + 'balance.dat', 'a')
             print(ep, self.bal_data.numpy(),
-                  file=output_file)
-            output_file.close()
-
-        # Balance lambda with NTK
-        if ntk_balance:
-            output_file = open(self.dest + 'balance.dat', 'a')
-            print(ep, self.bal_data.numpy(), self.bal_phys.numpy(),
-                  file=output_file)
-            output_file.close()
-
-        # Adaptive weights
-        if self.adaptive:
-            adps = [v.numpy()[0] for v in self.model.trainable_variables if 'adaptive' in v.name]
-            output_file = open(self.dest + 'adaptive.dat', 'a')
-            print(ep, *adps,
                   file=output_file)
             output_file.close()
 
