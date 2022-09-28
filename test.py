@@ -31,11 +31,9 @@ def some_eqs(model, coords, eq_params):
     
     eq1 = df1dx1 - np.pi*tf.cos(np.pi*coords[:,0])
     eq2 = df1dx2 + np.pi*tf.sin(np.pi*coords[:,1])
+    eq3 = df2dx1 - inv[1][:,0]*coords[:,0]**2
+    eq4 = df2dx2 - inv[0][:,0]*coords[:,1]
 
-    # inv[0] should be equal to 2
-    # inv[1] should be equal to 3
-    eq3 = df2dx1 - inv[1][0]*coords[:,0]**2
-    eq4 = df2dx2 - inv[0][0]*coords[:,1]
     return [eq1, eq2, eq3, eq4]
 
 # -----------------------------------------------------------------------------
