@@ -110,13 +110,13 @@ class PhysicsInformedNN:
         coords = keras.layers.Input(self.din, name='coords')
 
         if norm_in is not None:
-            x1     = tf.Variable(norm_in[0], name='x1')
-            x2     = tf.Variable(norm_in[1], name='x2')
+            x1     = norm_in[0]
+            x2     = norm_in[1]
             def norm(x):
                 return 2*(x-x1)/(x2-x1) - 1
         else:
-            x1   = tf.Variable(1.0,  name='x1')
-            x2   = tf.Variable(-1.0, name='x2')
+            x1   =  1.0
+            x2   = -1.0
             def norm(x):
                 return x
 
@@ -128,17 +128,17 @@ class PhysicsInformedNN:
 
         # Normalize main network output
         if norm_out is not None:
-            y1 = tf.Variable(norm_out[0], name='y1')
-            y2 = tf.Variable(norm_out[1], name='y2')
+            y1 = norm_out[0]
+            y2 = norm_out[1]
             if norm_out_type=='z-score':
                 def out_norm(x):
                     return y2*x + y1
-            elif norm_out_type=='min_max':
+            elif norm_out_type=='min-max':
                 def out_norm(x):
                     return 0.5*(x+1)*(y2-y1) + y1
         else:
-            y1   = tf.Variable(0.0, name='y1')
-            y2   = tf.Variable(1.0, name='y2')
+            y1   = 0.0
+            y2   = 1.0
             def out_norm(x):
                 return x
         fields  = keras.layers.Lambda(out_norm)(fields)
