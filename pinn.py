@@ -147,7 +147,7 @@ class PhysicsInformedNN:
         if self.inverse is not None:
             inv_outputs = self._generate_inverse(coords)
         else:
-            inv_outputs = [coords]  # Use coords as dummy outputs
+            inv_outputs = [keras.layers.Dense(1, name='dummy')(coords)]
         outputs = [fields] + inv_outputs
 
         # Create model
