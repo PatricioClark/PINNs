@@ -310,7 +310,7 @@ class PhysicsInformedNN:
                                              inv['activation'],
                                              inv['resnet'],
                                              mask=inv['mask'],
-                                             name=name)
+                                             out_name=name)
 
             # Append inverse
             inv_outputs.append(out)
