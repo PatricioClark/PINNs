@@ -49,7 +49,7 @@ class PhysicsInformedNN:
         dest : str [optional]
             Path for output files.
         activation : str [optional]
-            Activation function to be used. Default is 'tanh'.
+            Activation function to be used. Default is 'elu'.
         resnet : bool [optional]
             If True turn PINN into a residual network with two layers per
             block.
