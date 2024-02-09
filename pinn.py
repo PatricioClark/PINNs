@@ -121,10 +121,10 @@ class PhysicsInformedNN:
                 return x
 
         self.norm = norm
-        coords = keras.layers.Lambda(norm)(coords)
+        norm_coords = keras.layers.Lambda(norm)(coords)
 
         # Generate main network
-        fields = self._generate_network(coords, layers, activation, resnet)
+        fields = self._generate_network(norm_coords, layers, activation, resnet)
 
         # Normalize main network output
         if norm_out is not None:
@@ -145,9 +145,9 @@ class PhysicsInformedNN:
 
         # Generate inverse parts
         if self.inverse is not None:
-            inv_outputs = self._generate_inverse(coords)
+            inv_outputs = self._generate_inverse(norm_coords)
         else:
-            inv_outputs = [keras.layers.Dense(1, name='dummy')(coords)]
+            inv_outputs = [keras.layers.Dense(1, name='dummy')(norm_coords)]
         outputs = [fields] + inv_outputs
 
         # Create model
@@ -507,7 +507,6 @@ class PhysicsInformedNN:
                          lambda_phys*tf.square(eq))
                          for eq in equations]
             loss_phys = tf.add_n(loss_eqs)
-            equations = tf.convert_to_tensor(equations)
 
         # Calculate gradients of data part
         gradients_data = tape.gradient(loss_data,
@@ -591,12 +590,25 @@ def get_tr_k(grads):
     total_sum       = tf.add_n(sum_over_layers)
     return total_sum
 
-def get_mini_batch(X, Y, ld, lf, ba, batch_size, flag_idxs, random=True):
-    ''' New separted version for this problem '''
-    which = np.random.randint(np.shape(flag_idxs)[0])
-    fi    = flag_idxs[which]
-    idxs  = np.random.choice(fi, batch_size)
+def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
+    idxs = []
+    for fi in flag_idxs:
+        if random:
+            sl = np.random.choice(fi, len(fi)//batches)
+            idxs.append(sl)
+        else:
+            flag_size = len(fi)//batches
+            sl = slice(ba*flag_size, (ba+1)*flag_size)
+            idxs.append(fi[sl])
+    idxs = np.concatenate(idxs)
     return X[idxs], Y[idxs], ld[idxs], lf[idxs]
+
+# def get_mini_batch(X, Y, ld, lf, ba, batch_size, flag_idxs, random=True):
+#     ''' New separted version for this problem '''
+#     which = np.random.randint(np.shape(flag_idxs)[0])
+#     fi    = flag_idxs[which]
+#     idxs  = np.random.choice(fi, batch_size)
+#     return X[idxs], Y[idxs], ld[idxs], lf[idxs]
 
 class AdaptiveAct(keras.layers.Layer):
     """ Adaptive activation function """
