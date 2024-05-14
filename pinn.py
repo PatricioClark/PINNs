@@ -64,6 +64,9 @@ class PhysicsInformedNN:
             If a number or an array of size dout is supplied, the layer layer
             of the network normalizes the outputs using z-score. Default is
             False.
+        feature_expansion: func or None [optional]
+            If not None, then the inputs are feature expanded using the
+            function provided. Expansion is applied after norm_in. Default is None.
         inverse : list [optional]
             If a list is a supplied the PINN will run the inverse problem,
             where one or more of the paramters of the pde are to be found. The
@@ -87,6 +90,7 @@ class PhysicsInformedNN:
                  optimizer=keras.optimizers.Adam(lr=5e-4),
                  norm_in=None,
                  norm_out=None,
+                 feature_expansion=None,
                  norm_out_type='z-score',
                  inverse=None,
                  restore=True):
@@ -122,6 +126,10 @@ class PhysicsInformedNN:
 
         self.norm = norm
         norm_coords = keras.layers.Lambda(norm)(coords)
+
+        # Feature expansion
+        if feature_expansion is not None:
+            norm_coords = keras.layers.Lambda(feature_expansion)(norm_coords)
 
         # Generate main network
         fields = self._generate_network(norm_coords, layers, activation, resnet)
