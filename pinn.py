@@ -87,7 +87,7 @@ class PhysicsInformedNN:
                  dest='./',
                  activation='elu',
                  resnet=False,
-                 optimizer=keras.optimizers.Adam(lr=5e-4),
+                 optimizer=keras.optimizers.Adam(learning_rate=5e-4),
                  norm_in=None,
                  norm_out=None,
                  feature_expansion=None,
@@ -111,7 +111,7 @@ class PhysicsInformedNN:
         self.activation  = activation
 
         # Input definition and normalization
-        coords = keras.layers.Input(self.din, name='coords')
+        coords = keras.layers.Input((self.din,), name='coords')
 
         if norm_in is not None:
             x1     = norm_in[0]
