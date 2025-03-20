@@ -84,7 +84,7 @@ class PhysicsInformedNN:
                  dest='./',
                  activation='elu',
                  resnet=False,
-                 optimizer=keras.optimizers.Adam(lr=5e-4),
+                 optimizer=keras.optimizers.Adam(learning_rate=5e-4),
                  norm_in=None,
                  norm_out=None,
                  norm_out_type='z-score',
@@ -107,7 +107,7 @@ class PhysicsInformedNN:
         self.activation  = activation
 
         # Input definition and normalization
-        coords = keras.layers.Input(self.din, name='coords')
+        coords = keras.layers.Input((self.din,), name='coords')
 
         if norm_in is not None:
             x1     = norm_in[0]
@@ -511,12 +511,20 @@ class PhysicsInformedNN:
         # Calculate gradients of data part
         gradients_data = tape.gradient(loss_data,
                     self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+                    unconnected_gradients=tf.UnconnectedGradients.NONE)
 
         # Calculate gradients of physics part
         gradients_phys = tape.gradient(loss_phys,
                     self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+                    unconnected_gradients=tf.UnconnectedGradients.NONE)
+
+        # Update 2025-03-20
+        # There seems to be a bug (introduced in TF 2.16) in the tape.gradient function that does not allw UnconnectedGradients.ZERO, so we need to do it manually
+        for gi, (gd, gp) in enumerate(zip(gradients_data, gradients_phys)):
+            if gd is None:
+                gradients_data[gi] = tf.zeros_like(self.model.trainable_variables[gi])
+            if gp is None:
+                gradients_phys[gi] = tf.zeros_like(self.model.trainable_variables[gi])
 
         # Delete tape
         del tape
