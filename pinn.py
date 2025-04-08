@@ -527,7 +527,9 @@ class PhysicsInformedNN:
                     unconnected_gradients=tf.UnconnectedGradients.NONE)
 
         # Update 2025-03-20
-        # There seems to be a bug (introduced in TF 2.16) in the tape.gradient function that does not allw UnconnectedGradients.ZERO, so we need to do it manually
+        # There seems to be a bug (introduced in TF 2.16) in the tape.gradient
+        # function that does not allw UnconnectedGradients.ZERO, so we need to
+        # do it manually
         for gi, (gd, gp) in enumerate(zip(gradients_data, gradients_phys)):
             if gd is None:
                 gradients_data[gi] = tf.zeros_like(self.model.trainable_variables[gi])
