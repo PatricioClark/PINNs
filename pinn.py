@@ -519,12 +519,20 @@ class PhysicsInformedNN:
         # Calculate gradients of data part
         gradients_data = tape.gradient(loss_data,
                     self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+                    unconnected_gradients=tf.UnconnectedGradients.NONE)
 
         # Calculate gradients of physics part
         gradients_phys = tape.gradient(loss_phys,
                     self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+                    unconnected_gradients=tf.UnconnectedGradients.NONE)
+
+        # Update 2025-03-20
+        # There seems to be a bug (introduced in TF 2.16) in the tape.gradient function that does not allw UnconnectedGradients.ZERO, so we need to do it manually
+        for gi, (gd, gp) in enumerate(zip(gradients_data, gradients_phys)):
+            if gd is None:
+                gradients_data[gi] = tf.zeros_like(self.model.trainable_variables[gi])
+            if gp is None:
+                gradients_phys[gi] = tf.zeros_like(self.model.trainable_variables[gi])
 
         # Delete tape
         del tape
