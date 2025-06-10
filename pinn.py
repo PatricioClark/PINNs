@@ -87,6 +87,8 @@ class PhysicsInformedNN:
                  dest='./',
                  activation='elu',
                  resnet=False,
+                 reswidth=2,
+                 resnet2=False,
                  optimizer=keras.optimizers.Adam(learning_rate=5e-4),
                  norm_in=None,
                  norm_out=None,
@@ -103,6 +105,8 @@ class PhysicsInformedNN:
         # Extras
         self.dest        = dest
         self.resnet      = resnet
+        self.reswidth    = reswidth
+        self.resnet2     = resnet2
         self.inverse     = inverse
         self.norm_in     = norm_in
         self.norm_out    = norm_out
@@ -215,9 +219,16 @@ class PhysicsInformedNN:
             new_layer   = act_dict['act_fn'](new_layer)
 
             if resnet and not first_layer:
-                aux_layer = keras.layers.Dense(width,
-                                               kernel_initializer=act_dict['kinit'])(new_layer)
-                aux_layer = act_dict['act_fn'](aux_layer)
+                aux_layer = new_layer
+                for _ in range(self.reswidth-1):
+                    act_dict['kinit'] = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
+                                                                             tf.sqrt(6.0/width)/omega0)
+                    aux_layer = keras.layers.Dense(width,
+                                                   kernel_initializer=act_dict['kinit'])(aux_layer)
+                    aux_layer = act_dict['act_fn'](aux_layer)
+
+                if self.resnet2:
+                    aux_layer = keras.layers.Dense(width)(aux_layer)
 
                 hidden = 0.5*(hidden + aux_layer)
             else:
