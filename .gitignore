@@ -1,0 +1,9 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Run outputs written by PhysicsInformedNN (dest) and the example scripts
+tests/odir/
+
+# Keras Tuner trial results
+tuner/results/

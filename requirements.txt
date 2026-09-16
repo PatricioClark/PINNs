@@ -1,0 +1,15 @@
+# Core (pinn.py)
+numpy
+tensorflow>=2.16   # code carries a workaround for a tape.gradient change in 2.16
+
+# Example scripts (tests/)
+matplotlib
+
+# Hyperparameter tuning experiments (tuner/)
+keras-tuner
+
+# alternatives/lbfgs_pinn.py only
+scipy
+
+# Tested with: numpy 2.0.2, tensorflow 2.18.0 (Keras 3.9.0), matplotlib 3.10.1,
+# keras-tuner 1.4.7, scipy 1.15.2
