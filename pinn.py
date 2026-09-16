@@ -9,6 +9,7 @@ Original references:
      e-mail: pclarkdileoni@udesa.edu.ar
 """
 
+import os
 import numpy as np
 import tensorflow as tf
 from   tensorflow import keras
@@ -45,41 +46,62 @@ class PhysicsInformedNN:
     Args:
         layers : list
             Shape of the NN. The first element must be din, and the last one
-            must be dout.
+            must be dout. Networks used for inverse functions (see inverse)
+            must have the same din.
         dest : str [optional]
-            Path for output files.
-        activation : str [optional]
-            Activation function to be used. Default is 'elu'.
+            Path for output files (loss history, inverse constants, balance
+            weights and checkpoints). Default is the current directory.
+        activation : str or dict [optional]
+            Activation function to be used. Options are 'tanh', 'relu', 'elu'
+            and 'siren'. A dict with a 'type' key and the same options can be
+            used instead, in which case any additional keys override the
+            defaults associated with that activation (e.g. 'kinit' for the
+            kernel initializer, or 'first_omega0' and 'hidden_omega0' for
+            siren). Default is 'elu'.
         resnet : bool [optional]
             If True turn PINN into a residual network with two layers per
             block.
         optimizer : keras.optimizer instance [optional]
-            Optimizer to be used in the gradient descent. Default is Adam with
-            fixed learning rate equal to 5e-4.
-        norm_in : float or array [optional]
-            If a number or an array of size din is supplied, the first layer of
-            the network normalizes the inputs uniformly between -1 and 1.
-            Default is False.
-        norm_out : float or array [optional]
-            If a number or an array of size dout is supplied, the layer layer
-            of the network normalizes the outputs using z-score. Default is
-            False.
+            Optimizer to be used in the gradient descent. If None, a new Adam
+            with fixed learning rate equal to 5e-4 is created for this
+            instance. Default is None.
+        norm_in : list of two arrays [optional]
+            If supplied, must be [x_min, x_max], each a scalar or an array of
+            size din. The first layer of the network then maps the inputs
+            linearly so that [x_min, x_max] becomes [-1, 1]. Default is None
+            (no input normalization).
+        norm_out : list of two arrays [optional]
+            If supplied, must be a pair of scalars or arrays of size dout whose
+            meaning depends on norm_out_type. The last layer of the network
+            then maps the raw outputs back to physical units. Default is None
+            (no output normalization).
+        norm_out_type : str [optional]
+            How to interpret norm_out. 'z-score': norm_out is [mean, std] and
+            the output is std*x + mean. 'min-max': norm_out is [y_min, y_max]
+            and the output is mapped from [-1, 1] to [y_min, y_max]. Default
+            is 'z-score'.
         feature_expansion: func or None [optional]
             If not None, then the inputs are feature expanded using the
             function provided. Expansion is applied after norm_in. Default is None.
-        inverse : list [optional]
-            If a list is a supplied the PINN will run the inverse problem,
-            where one or more of the paramters of the pde are to be found. The
-            list must be of the same length as eq_params and its entries can be
-            False, if that parameters is fixed, 'const' if the parameters to be
-            learned is a constant (in this case the value provided in eq_params
-            will be used to initialize the variable), or a list with two
-            elements, the first a tuple indicating which arguments the
-            parameter depends on, and the second a list with the shape of the
-            NN to be used to model the hidden parameter.
+        inverse : list of dicts [optional]
+            If supplied the PINN will run the inverse problem, where one or
+            more parameters of the pde are to be learned. Each entry is a dict
+            with a 'type' key that is either:
+            - 'const': the parameter is a learnable constant. The dict must
+              also have a 'value' key used to initialize it.
+            - 'func': the parameter is a learnable function of the (normalized)
+              inputs, modelled by its own network. The dict must have a
+              'layers' key with the shape of that network, and may have
+              'activation', 'resnet' (both default to the main network's
+              settings) and 'mask', an array of size din with 1 for the inputs
+              the function depends on and 0 for those it does not (default is
+              no mask).
+            The learned parameters are returned by the model as additional
+            outputs, in the same order as this list, after the main fields.
+            Default is None.
         restore : bool [optional]
             If True, it checks if a checkpoint exists in dest. If a checkpoint
-            exists it restores the modelfrom there. Default is True.
+            exists it restores the model from there. Default is True.
     """
     # Initialize the class
     def __init__(self,
@@ -87,7 +109,7 @@ class PhysicsInformedNN:
                  dest='./',
                  activation='elu',
                  resnet=False,
-                 optimizer=keras.optimizers.Adam(learning_rate=5e-4),
+                 optimizer=None,
                  norm_in=None,
                  norm_out=None,
                  feature_expansion=None,
@@ -99,6 +121,10 @@ class PhysicsInformedNN:
         self.din    = layers[0]
         self.dout   = layers[-1]
         self.layers = layers
+
+        # Optimizer (fresh instance per model if none supplied)
+        if optimizer is None:
+            optimizer = keras.optimizers.Adam(learning_rate=5e-4)
 
         # Extras
         self.dest        = dest
@@ -174,7 +200,7 @@ class PhysicsInformedNN:
                                            bal_phys=self.bal_phys,
                                            optimizer=self.optimizer)
         self.manager = tf.train.CheckpointManager(self.ckpt,
-                                                  self.dest + '/ckpt',
+                                                  os.path.join(self.dest, 'ckpt'),
                                                   max_to_keep=5)
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
@@ -249,6 +275,7 @@ class PhysicsInformedNN:
 
         elif act_dict['type'] == 'relu':
             act_fn = keras.activations.relu
+            kinit  = 'he_normal'
 
         elif act_dict['type'] == 'elu':
             act_fn = keras.activations.elu
@@ -416,6 +443,7 @@ class PhysicsInformedNN:
         # Expand lambdas if necessary
         if not np.shape(lambda_data):
             lambda_data = np.array([lambda_data for _ in range(len_data)])
+        if not np.shape(lambda_phys):
             lambda_phys = np.array([lambda_phys for _ in range(len_data)])
 
         # Expand flags
@@ -446,7 +474,7 @@ class PhysicsInformedNN:
                                           lambda_data,
                                           lambda_phys,
                                           ba,
-                                          batch_size,
+                                          batches,
                                           flag_idxs,
                                           random=rnd_order_training)
                 x_batch = tf.convert_to_tensor(x_batch)
@@ -569,7 +597,7 @@ class PhysicsInformedNN:
         """ Print status function """
 
         # Loss functions
-        output_file = open(self.dest + 'output.dat', 'a')
+        output_file = open(os.path.join(self.dest, 'output.dat'), 'a')
         print(ep, f'{lu}', f'{lf}',
               file=output_file)
         output_file.close()
@@ -578,13 +606,13 @@ class PhysicsInformedNN:
 
         # Inverse coefficients
         if self.inverse and len(inv_ctes) > 0:
-            output_file = open(self.dest + 'inverse.dat', 'a')
+            output_file = open(os.path.join(self.dest, 'inverse.dat'), 'a')
             print(ep, *[pp.numpy()[0] for pp in inv_ctes], file=output_file)
             output_file.close()
 
         # Balance lambda with alpha
         if alpha:
-            output_file = open(self.dest + 'balance.dat', 'a')
+            output_file = open(os.path.join(self.dest, 'balance.dat'), 'a')
             print(ep, self.bal_phys.numpy(),
                   file=output_file)
             output_file.close()
