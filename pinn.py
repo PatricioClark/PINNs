@@ -247,8 +247,6 @@ class PhysicsInformedNN:
             if resnet and not first_layer:
                 aux_layer = new_layer
                 for _ in range(self.reswidth-1):
-                    act_dict['kinit'] = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
-                                                                             tf.sqrt(6.0/width)/omega0)
                     aux_layer = keras.layers.Dense(width,
                                                    kernel_initializer=act_dict['kinit'])(aux_layer)
                     aux_layer = act_dict['act_fn'](aux_layer)
