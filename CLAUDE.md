@@ -23,6 +23,8 @@ cd tests && PYTHONPATH=../.. MPLBACKEND=Agg python test.py
 - `MPLBACKEND=Agg` avoids the blocking `plt.show()` at the end; figures are saved to `odir/fig_*.png` regardless.
 - The scripts train for 400 epochs (`tot_eps`); lower it for a quick smoke run.
 
+`examples/` holds templates for colleagues, laid out like the owner's research runs (`params.py`, `equations.py`, `mod.py`, `run_pinn.py`). `examples/rayleigh_benard/` fits 2D Rayleigh-Benard data with known `Ra`, `Pr`; its data format is a deliberate placeholder (`load_grid`/`load_snapshot` in `mod.py`) and there is no data in the repo, so it can only be smoke-tested with fake data. Run it from its own directory with `PYTHONPATH=../../..`; see its README.
+
 `tuner/` and `alternatives/` are kept for reference but are **not maintained**: the tuner scripts depend on modules and data outside this repo and on an older constructor API, and the owner has chosen to leave them as they are. Do not fix or delete them unless asked.
 
 ## Architecture
